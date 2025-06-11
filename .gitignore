@@ -1,0 +1,101 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Data files (mantener estructura pero no datos grandes)
+data/raw/*.csv
+data/raw/*.h5
+data/raw/*.parquet
+data/processed/*.csv
+data/processed/*.parquet
+data/processed/*.h5
+data/models/*.pkl
+data/models/*.pth
+data/models/*.h5
+data/models/*.joblib
+data/models/*.zip
+data/results/*.png
+data/results/*.html
+data/results/*.pdf
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/models/.gitkeep
+!data/results/.gitkeep
+
+# Logs
+logs/*
+*.log
+!logs/.gitkeep
+!logs/*/.gitkeep
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Temporary files
+*.tmp
+*.temp
+mt5setup.exe
+
+# Docker
+.dockerignore
+
+# Monitoring data
+monitoring/grafana/data/
+monitoring/prometheus/data/
+
+# Model checkpoints
+checkpoints/
+
+# Tensorboard logs
+tensorboard/

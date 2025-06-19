@@ -1,0 +1,10 @@
+{
+  "algorithm": "PPO",
+  "total_timesteps": 10000,
+  "training_time": "0:15:57.821337",
+  "env_config": {
+    "lookback_window": 10
+  },
+  "model_config": {},
+  "timestamp": "2025-06-17T13:52:22.726858"
+}

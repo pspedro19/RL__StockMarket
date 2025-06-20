@@ -1,0 +1,62 @@
+# Parámetros específicos de trading
+trading:
+  # Indicadores técnicos
+  indicators:
+    rsi:
+      period: 14
+      oversold: 30
+      overbought: 70
+    
+    macd:
+      fast_period: 12
+      slow_period: 26
+      signal_period: 9
+    
+    bollinger_bands:
+      period: 20
+      std_dev: 2
+    
+    moving_averages:
+      sma_short: 10
+      sma_long: 50
+      ema_period: 21
+    
+    volume:
+      sma_period: 20
+    
+    momentum:
+      period: 10
+
+  # Señales de trading
+  signals:
+    technical_weight: 0.4
+    ml_weight: 0.6
+    
+    # Umbrales para señales
+    rsi_oversold_threshold: 30
+    rsi_overbought_threshold: 70
+    macd_signal_threshold: 0.1
+    bb_lower_threshold: 0.2
+    bb_upper_threshold: 0.8
+    momentum_threshold: 0.02
+
+  # Gestión de riesgo
+  risk_management:
+    max_position_size: 0.03
+    stop_loss_percentage: 0.02
+    take_profit_percentage: 0.04
+    trailing_stop: false
+    max_consecutive_losses: 3
+    max_drawdown_percentage: 0.15
+
+  # Control de trading
+  trading_controls:
+    max_daily_trades: 5
+    min_trade_separation_bars: 3
+    trading_hours:
+      start: "09:30"
+      end: "16:00"
+      timezone: "US/Eastern"
+    
+    # Días de trading (0=Lunes, 6=Domingo)
+    trading_days: [0, 1, 2, 3, 4]  # Lunes a Viernes 

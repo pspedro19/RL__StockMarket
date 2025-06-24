@@ -58,7 +58,8 @@ def select_algorithm():
     while True:
         choice = input("\nIngresa el número de tu elección (1-4): ").strip()
         if choice in AVAILABLE_ALGORITHMS:
-            return choice
+            algorithm_name, algorithm_class = AVAILABLE_ALGORITHMS[choice]
+            return choice, algorithm_name, algorithm_class
         print("❌ Opción inválida. Por favor, selecciona un número del 1 al 4.")
 
 class MLEnhancedTradingSystem(gym.Env):

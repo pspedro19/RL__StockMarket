@@ -81,10 +81,8 @@ class MLEnhancedTradingSystem(gym.Env):
         
         # Parámetros de trading
         self.initial_capital = 100000  # Capital inicial
-        self.current_capital = self.initial_capital  # Capital actual
         self.balance = self.initial_capital  # Balance actual
         self.position_size = 0  # Tamaño de posición actual
-        self.position_type = None  # Tipo de posición actual
         self.entry_price = 0  # Precio de entrada
         self.max_position_risk = 0.02  # Máximo riesgo por posición (2%)
         self.stop_loss_pct = 0.01  # Stop loss (1%)
@@ -93,8 +91,6 @@ class MLEnhancedTradingSystem(gym.Env):
         self.max_daily_trades = 5  # Máximo de trades por día
         self.consecutive_losses = 2  # Máximo de pérdidas consecutivas
         self.ml_weight = 0.5  # Peso del modelo ML vs técnico
-        self.last_trade_step = 0  # Último paso donde se ejecutó un trade
-        self.daily_trades = 0  # Número de trades del día actual
         
         # Estadísticas de trading
         self.total_trades = 0
@@ -875,11 +871,11 @@ class MLEnhancedTradingSystem(gym.Env):
         prices = self.data.iloc[step-50:step+1]['price'].values
         returns = np.diff(prices) / prices[:-1]  # Retornos
         
-        # Indicadores técnicos (acceder desde el DataFrame)
-        rsi = self.data.iloc[step]['rsi']
-        macd = self.data.iloc[step]['macd_normalized']
-        bb_pos = self.data.iloc[step]['bb_position']
-        volume_ratio = self.data.iloc[step]['volume_ratio']
+        # Indicadores técnicos
+        rsi = self.indicators['rsi'][step]
+        macd = self.indicators['macd'][step]
+        bb_pos = self.indicators['bb_pos'][step]
+        volume_ratio = self.indicators['volume_ratio'][step]
         
         # Features de precio (10 últimos retornos)
         price_features = returns[-10:]
@@ -969,16 +965,16 @@ class MLEnhancedTradingSystem(gym.Env):
         current_price = self.data.iloc[step]['price']
         prev_price = self.data.iloc[step-1]['price']
         
-        # RSI (acceder desde el DataFrame)
-        rsi = self.data.iloc[step]['rsi']
+        # RSI
+        rsi = self.indicators['rsi'][step]
         rsi_signal = 0.0
         if rsi < 30:  # Sobreventa
             rsi_signal = 1.0
         elif rsi > 70:  # Sobrecompra
             rsi_signal = -1.0
             
-        # MACD (acceder desde el DataFrame)
-        macd = self.data.iloc[step]['macd_normalized']
+        # MACD
+        macd = self.indicators['macd'][step]
         macd_signal = 0.0
         if macd > 0.1:  # Señal fuerte de compra
             macd_signal = 1.0
@@ -993,16 +989,16 @@ class MLEnhancedTradingSystem(gym.Env):
         elif momentum < -0.001:  # Umbral más bajo
             momentum_signal = -1.0
             
-        # Bollinger Bands (acceder desde el DataFrame)
-        bb_position = self.data.iloc[step]['bb_position']
+        # Bollinger Bands
+        bb_position = self.indicators['bb_pos'][step]
         bb_signal = 0.0
         if bb_position < 0.2:  # Cerca de banda inferior
             bb_signal = 1.0
         elif bb_position > 0.8:  # Cerca de banda superior
             bb_signal = -1.0
             
-        # Volumen (acceder desde el DataFrame)
-        volume_ratio = self.data.iloc[step]['volume_ratio']
+        # Volumen
+        volume_ratio = self.indicators['volume_ratio'][step]
         volume_signal = 0.0
         if volume_ratio > 1.2:  # Alto volumen
             volume_signal = 1.0 if current_price > prev_price else -1.0

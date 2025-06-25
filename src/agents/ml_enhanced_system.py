@@ -23,10 +23,10 @@ warnings.filterwarnings('ignore')
 try:
     import MetaTrader5 as mt5
     HAS_MT5 = True
-    print("✅ MetaTrader5 disponible")
+    print("MetaTrader5 disponible")
 except ImportError:
     HAS_MT5 = False
-    print("⚠️ MetaTrader5 no disponible - usando datos simulados")
+    print("MetaTrader5 no disponible - usando datos simulados")
 
 # Intentar importar componentes de RL
 try:
@@ -34,7 +34,7 @@ try:
     from stable_baselines3.common.vec_env import DummyVecEnv
     from stable_baselines3.dqn.policies import MlpPolicy
     HAS_RL = True
-    print("✅ Componentes de RL disponibles")
+    print("Componentes de RL disponibles")
 except ImportError:
     HAS_RL = False
     print("⚠️ Sin componentes de RL - usando solo técnico")

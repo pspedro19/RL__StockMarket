@@ -1,0 +1,15 @@
+﻿Métrica,Valor,Unidad
+Total_Trades,22.0,cantidad
+Trades_Ganadores,13.0,cantidad
+Trades_Perdedores,9.0,cantidad
+Win_Rate,59.09,porcentaje
+Retorno_Total_USD,278.55,USD
+Retorno_Porcentual,0.2785,porcentaje
+Retorno_Promedio,0.0139,porcentaje
+Promedio_Ganancia,0.06,porcentaje
+Promedio_Perdida,-0.05,porcentaje
+Sharpe_Ratio,0.2357,ratio
+Max_Drawdown_USD,-144.3,USD
+Profit_Factor,1.734,ratio
+Duracion_Promedio,45.5,steps
+MAPE_Error_ML,0.0,porcentaje

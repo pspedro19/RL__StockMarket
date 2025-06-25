@@ -30,7 +30,7 @@ except ImportError:
 
 # Intentar importar componentes de RL
 try:
-    from stable_baselines3 import DQN, A2C
+    from stable_baselines3 import DQN, A2C, PPO
     from stable_baselines3.common.vec_env import DummyVecEnv
     from stable_baselines3.dqn.policies import MlpPolicy
     HAS_RL = True
@@ -69,6 +69,12 @@ class MLEnhancedTradingSystem(gym.Env):
         """Inicializar sistema de trading"""
         super().__init__()
         
+        # Configuración de RL - SELECCIONAR ALGORITMO PRIMERO
+        if not skip_selection:
+            self.algorithm_choice, self.algorithm_name, self.algorithm_class = select_algorithm()
+        else:
+            self.algorithm_choice, self.algorithm_name, self.algorithm_class = "2", "DeepDQN", DQN
+        
         # Configuración inicial
         self.symbol = "US500"  # SP500
         self.timeframe = mt5.TIMEFRAME_M1  # 1 minuto
@@ -99,9 +105,11 @@ class MLEnhancedTradingSystem(gym.Env):
         
         # Estadísticas de trading
         self.total_trades = 0
-        self.successful_trades = 0
+        self.profitable_trades = 0
         self.failed_trades = 0
         self.total_return = 0.0
+        self.peak_value = self.initial_capital
+        self.max_drawdown = 0.0
         
         # Arrays de seguimiento
         self.portfolio_values = []
@@ -114,27 +122,38 @@ class MLEnhancedTradingSystem(gym.Env):
         self.ml_predictions = []
         self.technical_signals = []
         
-        # Configuración de RL
-        if not skip_selection:
-            self.algorithm_choice, self.algorithm_name, self.algorithm_class = select_algorithm()
-        
         # Modelo ML
         self.ml_model = None
-        self.model_paths = [
-            "models/trading_model.zip",
-            "models/best_model.zip"
-        ]
+        self.model_paths = {
+            "1": [  # DQN
+                "data/models/qdn/model.zip",
+                "data/models/best_qdn/model.zip"
+            ],
+            "2": [  # DeepDQN
+                "data/models/deepqdn/model.zip",
+                "data/models/best_deepqdn/model.zip"
+            ],
+            "3": [  # PPO
+                "data/models/ppo/model.zip",
+                "data/models/best_ppo/best_model.zip"
+            ],
+            "4": [  # A2C
+                "data/models/a2c/model.zip",
+                "data/models/best_a2c/model.zip"
+            ]
+        }
         
         # Definir espacios de observación y acción para RL
+        self.state_dim = 4  # [price, sma_diff, rsi, macd]
         self.observation_space = spaces.Box(
-            low=-np.inf, 
-            high=np.inf, 
-            shape=(63,),  # 8 features x 7 time steps + otros indicadores
+            low=np.array([-4.8000002, -3.4028235e+38, -0.41887903, -3.4028235e+38], dtype=np.float32),
+            high=np.array([4.8000002, 3.4028235e+38, 0.41887903, 3.4028235e+38], dtype=np.float32),
             dtype=np.float32
         )
         
-        # 0: Vender, 1: Comprar, 2: Hold
-        self.action_space = spaces.Discrete(3)
+        # Configurar espacio de acciones según el algoritmo
+        # TODOS los modelos entrenados usan Discrete(2)
+        self.action_space = spaces.Discrete(2)
         
         # Control de reproducción
         self.is_playing = False
@@ -152,9 +171,12 @@ class MLEnhancedTradingSystem(gym.Env):
         
         # Visual
         self.window_size = 150
-        
+    
     def step(self, action):
         """Implementar step requerido por gym.Env"""
+        # TODOS los modelos usan acciones discretas ahora
+        trading_action = action
+        
         # Avanzar un paso
         self.current_step += 1
         
@@ -166,23 +188,21 @@ class MLEnhancedTradingSystem(gym.Env):
         new_value = self.portfolio_values[self.current_step]
         reward = (new_value - old_value) / old_value
         
-        # Verificar si terminó el episodio
+        # Verificar si el episodio terminó
         done = self.current_step >= len(self.data) - 1
         
         return state, reward, done, False, {}
         
-    def reset(self, seed=None, options=None):
+    def reset(self, **kwargs):
         """Implementar reset requerido por gym.Env"""
-        super().reset(seed=seed)
-        
+        # Ignorar todos los kwargs (seed, options, etc.)
         self.current_step = 50
         self.current_capital = self.initial_capital
         self.position_size = 0
         self.position_type = None
         self.daily_trades = 0
         self.consecutive_losses = 0
-        self.total_trades = 0
-        self.profitable_trades = 0
+        self.last_trade_step = 0
         
         # Reiniciar tracking
         self.initialize_tracking_arrays()
@@ -192,147 +212,181 @@ class MLEnhancedTradingSystem(gym.Env):
     def get_state(self):
         """Obtener estado actual para RL"""
         if self.data is None or self.current_step < 50:
-            return np.zeros(63)
+            return np.zeros(self.state_dim, dtype=np.float32)
             
-        # Obtener features actuales
-        features = self.prepare_ml_features(self.current_step)
-        
-        # Asegurar shape correcto (63,)
-        if features is None:
-            return np.zeros(63)
+        # Obtener features principales
+        try:
+            current_price = self.data.iloc[self.current_step]['close']
+            price_change = (current_price - self.data.iloc[self.current_step - 1]['close']) / self.data.iloc[self.current_step - 1]['close']
+            volume = self.data.iloc[self.current_step]['volume']
+            rsi = self.data.iloc[self.current_step]['RSI'] if 'RSI' in self.data.columns else 50.0
             
-        return features.reshape(63,)
+            # Normalizar features para coincidir con el espacio de observación del modelo existente
+            price_change = np.clip(price_change * 100, -4.8000002, 4.8000002)  # Cambio % limitado
+            volume = volume * 1e-6  # Escalar volumen
+            rsi = (rsi - 50) / 120  # Normalizar RSI a [-0.41, 0.41]
+            position = 1.0 if self.position_size > 0 else -1.0  # Indicador de posición [-1,1]
+            
+            features = np.array([
+                price_change,  # Cambio porcentual del precio [-4.8, 4.8]
+                volume,       # Volumen escalado
+                rsi,         # RSI normalizado [-0.41, 0.41]
+                position     # Indicador de posición [-1,1]
+            ], dtype=np.float32)
+            
+            return features
+            
+        except Exception as e:
+            print(f"⚠️ Error preparando features: {e}")
+            return np.zeros(self.state_dim, dtype=np.float32)
     
     def load_ml_model(self):
-        """Cargar modelo entrenado si existe"""
+        """Cargar modelo pre-entrenado"""
+        if not HAS_RL:
+            print("⚠️ Sin componentes de RL - usando solo técnico")
+            return
+            
+        print("\n🤖 Cargando modelo real para", self.algorithm_name)
+        
+        # Intentar cargar modelo
+        for model_path in self.model_paths[self.algorithm_choice]:
+            try:
+                print("🔄 Intentando cargar:", model_path)
+                
+                # Cargar modelo según el tipo
+                if self.algorithm_name == "A2C":
+                    self.ml_model = A2C.load(model_path, env=self)
+                elif self.algorithm_name == "PPO":
+                    self.ml_model = PPO.load(model_path, env=self)
+                else:  # DQN y DeepDQN
+                    self.ml_model = DQN.load(model_path, env=self)
+                
+                # Probar predicción
+                test_state = self.get_state()
+                test_prediction = self.ml_model.predict(test_state)
+                print("✅ Modelo cargado exitosamente")
+                print("🧠 Tipo:", self.algorithm_name)
+                print("🎯 Test prediction:", test_prediction)
+                return
+                
+            except Exception as e:
+                print(f"⚠️ Error cargando {model_path}: {str(e)}")
+                continue
+                
+        print("\n❌ No se pudo cargar ningún modelo real")
+        print("💡 Intentando entrenar un nuevo modelo...")
+        
+        # Intentar entrenar nuevo modelo
         try:
-            if not HAS_RL:
-                print("⚠️ Stable-baselines3 no disponible")
-                return self.create_simple_ml_model()
-
-            # Configurar modelo según el tipo
-            if self.algorithm_choice == "1":  # QDN
-                policy_kwargs = dict(net_arch=[64, 32])
-                model = DQN(
-                    MlpPolicy,
-                    DummyVecEnv([lambda: self]),
-                    policy_kwargs=policy_kwargs,
-                    learning_rate=0.001,
-                    verbose=1
-                )
-                print("✅ Modelo QDN creado con red simple [64, 32]")
-                
-            elif self.algorithm_choice == "2":  # DeepQDN
-                policy_kwargs = dict(net_arch=[256, 256, 128, 64])
-                model = DQN(
-                    MlpPolicy,
-                    DummyVecEnv([lambda: self]),
-                    policy_kwargs=policy_kwargs,
-                    learning_rate=0.0005,
-                    verbose=1
-                )
-                print("✅ Modelo DeepQDN creado con red profunda [256, 256, 128, 64]")
-                
-            else:  # A2C u otros
-                model = self.algorithm_class(
-                    "MlpPolicy",
-                    DummyVecEnv([lambda: self]),
-                    verbose=1
-                )
-                print(f"✅ Modelo {self.algorithm_name} creado")
-            
-            # Intentar cargar modelo entrenado
-            model_path = self.model_paths[0]
-            if os.path.exists(model_path):
-                model = model.load(model_path)
-                print(f"✅ Modelo cargado desde {model_path}")
-            else:
-                print(f"⚠️ No se encontró modelo en {model_path}")
-                print("🔄 Usando modelo técnico en su lugar")
-                return self.create_simple_ml_model()
-            
-            self.ml_model = model
-            return True
-                
+            self.train_new_model()
         except Exception as e:
-            print(f"❌ Error cargando modelo: {e}")
-            print("🔄 Usando modelo técnico en su lugar")
-            return self.create_simple_ml_model()
+            print("❌ Error entrenando modelo:", str(e))
+            print("❌ No se pudo entrenar un nuevo modelo")
     
     def create_simple_ml_model(self):
-        """Crear un modelo simple basado en reglas si no hay uno entrenado"""
-        print("🔄 Creando modelo técnico avanzado...")
+        """DEPRECATED: Solo usamos modelos reales entrenados"""
+        print("❌ Esta función está deshabilitada - solo usamos modelos reales")
+        print("💡 Entrena un modelo real: python src/agents/train_models.py")
+        return False
+    
+    def train_new_model(self):
+        """Entrenar un nuevo modelo cuando no existe uno válido"""
+        print("\n🚀 Iniciando entrenamiento automático de modelo...")
         
-        class SimpleTechnicalModel:
-            def predict(self, obs):
-                """Predicción basada en múltiples indicadores"""
-                if len(obs.shape) == 1:
-                    obs = obs.reshape(1, -1)
+        if not HAS_RL:
+            print("❌ Stable-baselines3 no disponible")
+            print("💡 Instala: pip install stable-baselines3")
+            return None
+
+        try:
+            # Generar datos de entrenamiento si no existen
+            if self.data is None:
+                print("📊 Generando datos de entrenamiento...")
+                self.generate_market_data(n_points=5000)  # Más datos para entrenamiento
+            
+            # Asegurar que tenemos RSI calculado
+            if 'RSI' not in self.data.columns:
+                self.data = self.calculate_indicators(self.data)
+            
+            # Configurar modelo según el tipo de algoritmo
+            if self.algorithm_choice in ["1", "2"]:  # DQN/DeepDQN
+                policy_kwargs = dict(net_arch=[64, 32]) if self.algorithm_choice == "1" else dict(net_arch=[256, 256, 128, 64])
+                learning_rate = 0.001 if self.algorithm_choice == "1" else 0.0005
                 
-                predictions = []
-                for row in obs:
-                    # Asumir que tenemos: [price, rsi, macd, bb_pos, volume_ratio, momentum, ...]
-                    if len(row) >= 6:
-                        price_idx = 0
-                        rsi_idx = 1 if len(row) > 1 else 0
-                        macd_idx = 2 if len(row) > 2 else 0
-                        bb_idx = 3 if len(row) > 3 else 0
-                        vol_idx = 4 if len(row) > 4 else 0
-                        mom_idx = 5 if len(row) > 5 else 0
+                model = DQN(
+                    MlpPolicy,
+                    self,  # Usar self directamente como env
+                    policy_kwargs=policy_kwargs,
+                    learning_rate=learning_rate,
+                    verbose=1
+                )
+            elif self.algorithm_choice == "3":  # A2C
+                # Para A2C, crear un wrapper compatible
+                class A2CEnvWrapper(gym.Env):
+                    def __init__(self, base_env):
+                        super().__init__()
+                        self.base_env = base_env
+                        self.observation_space = base_env.observation_space
+                        self.action_space = gym.spaces.Box(low=-1.0, high=1.0, shape=(1,), dtype=np.float32)
                         
-                        # Señales múltiples
-                        signals = []
+                    def reset(self, **kwargs):
+                        return self.base_env.reset(**kwargs)
                         
-                        # RSI
-                        if len(row) > rsi_idx:
-                            rsi_val = row[rsi_idx] * 100  # Normalizar
-                            if rsi_val < 30:
-                                signals.append(1)  # Compra
-                            elif rsi_val > 70:
-                                signals.append(0)  # Venta
-                        
-                        # MACD (asumir normalizado)
-                        if len(row) > macd_idx:
-                            macd_val = row[macd_idx]
-                            if macd_val > 0.1:
-                                signals.append(1)
-                            elif macd_val < -0.1:
-                                signals.append(0)
-                        
-                        # Bollinger Bands
-                        if len(row) > bb_idx:
-                            bb_val = row[bb_idx]
-                            if bb_val < 0.2:
-                                signals.append(1)
-                            elif bb_val > 0.8:
-                                signals.append(0)
-                        
-                        # Momentum
-                        if len(row) > mom_idx:
-                            mom_val = row[mom_idx]
-                            if mom_val > 0.02:
-                                signals.append(1)
-                            elif mom_val < -0.02:
-                                signals.append(0)
-                        
-                        # Decisión por mayoría
-                        if len(signals) >= 2:
-                            if signals.count(1) > signals.count(0):
-                                predictions.append([1])  # Compra
-                            elif signals.count(0) > signals.count(1):
-                                predictions.append([0])  # Venta  
-                            else:
-                                predictions.append([2])  # Hold
-                        else:
-                            predictions.append([2])  # Hold por defecto
-                    else:
-                        predictions.append([2])  # Hold
+                    def step(self, action):
+                        action_value = float(action[0]) if isinstance(action, np.ndarray) else float(action)
+                        discrete_action = 1 if action_value > 0.3 else 0 if action_value < -0.3 else 1
+                        return self.base_env.step(discrete_action)
                 
-                return np.array(predictions)
-        
-        self.ml_model = SimpleTechnicalModel()
-        print("✅ Modelo técnico avanzado creado")
-        return True
+                a2c_env = A2CEnvWrapper(self)
+                model = A2C(
+                    "MlpPolicy",
+                    a2c_env,
+                    learning_rate=0.0003,
+                    verbose=1
+                )
+            elif self.algorithm_choice == "4":  # SAC
+                try:
+                    from stable_baselines3 import SAC
+                    model = SAC(
+                        "MlpPolicy",
+                        self,  # Usar self directamente como env
+                        learning_rate=0.0003,
+                        verbose=1
+                    )
+                except ImportError:
+                    print("⚠️ SAC no disponible, usando DQN...")
+                    model = DQN(
+                        MlpPolicy,
+                        self,  # Usar self directamente como env
+                        learning_rate=0.001,
+                        verbose=1
+                    )
+            
+            # Entrenar modelo
+            total_timesteps = 100000
+            print(f"\n📈 Entrenando modelo por {total_timesteps} pasos...")
+            model.learn(total_timesteps=total_timesteps)
+            
+            # Crear directorios si no existen
+            model_dir = f"data/models/{self.algorithm_name.lower()}"
+            best_model_dir = f"data/models/best_{self.algorithm_name.lower()}"
+            os.makedirs(model_dir, exist_ok=True)
+            os.makedirs(best_model_dir, exist_ok=True)
+            
+            # Guardar modelo
+            model_path = f"{model_dir}/model.zip"
+            best_path = f"{best_model_dir}/model.zip"
+            model.save(model_path)
+            model.save(best_path)
+            
+            print(f"✅ Modelo guardado en: {model_path}")
+            print(f"✅ Mejor modelo guardado en: {best_path}")
+            
+            return model
+            
+        except Exception as e:
+            print(f"❌ Error entrenando modelo: {e}")
+            return None
     
     def connect_mt5(self):
         """Conectar a MetaTrader5 con diagnóstico mejorado"""
@@ -869,98 +923,63 @@ class MLEnhancedTradingSystem(gym.Env):
     
     def prepare_ml_features(self, step):
         """Preparar features para ML"""
-        if step < 50:  # Necesitamos suficientes datos históricos
-            return np.zeros(63)
+        if step < 20:  # Necesitamos suficientes datos históricos
+            return np.zeros(4)
             
-        # Precios
-        prices = self.data.iloc[step-50:step+1]['price'].values
-        returns = np.diff(prices) / prices[:-1]  # Retornos
+        # 1. Precio normalizado (usando ventana de 20 periodos)
+        prices = self.data.iloc[step-20:step+1]['price'].values
+        price_mean = np.mean(prices)
+        price_std = np.std(prices)
+        norm_price = (prices[-1] - price_mean) / (price_std + 1e-8)
+        norm_price = np.clip(norm_price, -4.8, 4.8)
         
-        # Indicadores técnicos (acceder desde el DataFrame)
-        rsi = self.data.iloc[step]['rsi']
+        # 2. Volumen normalizado
+        volumes = self.data.iloc[step-20:step+1]['volume'].values
+        volume_mean = np.mean(volumes)
+        volume_std = np.std(volumes)
+        norm_volume = (volumes[-1] - volume_mean) / (volume_std + 1e-8)
+        
+        # 3. RSI normalizado
+        rsi = self.data.iloc[step]['rsi'] / 100.0  # Ya está entre 0 y 1
+        norm_rsi = (rsi - 0.5) * 0.83775806  # Escalar a [-0.41887903, 0.41887903]
+        
+        # 4. MACD normalizado
         macd = self.data.iloc[step]['macd_normalized']
-        bb_pos = self.data.iloc[step]['bb_position']
-        volume_ratio = self.data.iloc[step]['volume_ratio']
         
-        # Features de precio (10 últimos retornos)
-        price_features = returns[-10:]
-        
-        # Features de volatilidad
-        volatility = np.std(returns[-20:])
-        
-        # Features de momentum
-        momentum_1 = returns[-1]
-        momentum_5 = np.mean(returns[-5:])
-        momentum_10 = np.mean(returns[-10:])
-        
-        # Features de tendencia
-        sma_20 = np.mean(prices[-20:])
-        sma_50 = np.mean(prices[-50:])
-        trend = sma_20 / sma_50 - 1
-        
-        # Features de volumen
-        volume = self.data.iloc[step]['volume']
-        volume_sma = np.mean(self.data.iloc[step-20:step+1]['volume'])
-        volume_trend = volume / volume_sma - 1
-        
-        # Combinar todos los features
-        features = []
-        
-        # 1. Features de precio (10)
-        features.extend(price_features)
-        
-        # 2. Features de volatilidad (1)
-        features.append(volatility)
-        
-        # 3. Features de momentum (3)
-        features.extend([momentum_1, momentum_5, momentum_10])
-        
-        # 4. Features de tendencia (3)
-        features.extend([trend, sma_20/prices[-1] - 1, sma_50/prices[-1] - 1])
-        
-        # 5. Features de volumen (3)
-        features.extend([volume_ratio, volume_trend, volume/volume_sma])
-        
-        # 6. Indicadores técnicos (3)
-        features.extend([rsi/100, macd, bb_pos])
-        
-        # Limpiar NaN y Inf
-        features = [0.0 if pd.isna(f) or np.isinf(f) else f for f in features]
-        
-        # Normalizar features
-        features = np.array(features)
-        features = np.clip(features, -10, 10)  # Clipear valores extremos
-        
-        # Pad con ceros hasta 63 features
-        if len(features) < 63:
-            features = np.pad(features, (0, 63 - len(features)))
-        else:
-            features = features[:63]
+        # Combinar features en el orden correcto
+        features = np.array([
+            norm_price,      # [-4.8, 4.8]
+            norm_volume,     # [-3.4e38, 3.4e38]
+            norm_rsi,        # [-0.41887903, 0.41887903]
+            macd            # [-3.4e38, 3.4e38]
+        ], dtype=np.float32)
         
         return features
-    
+        
     def generate_ml_signal(self, step):
-        """Generar señal de ML"""
+        """Generar señal usando el modelo de ML"""
         try:
-            # Preparar features
-            features = self.prepare_ml_features(step)
+            if self.ml_model is None:
+                return 0
             
             # Obtener predicción del modelo
-            if self.ml_model is not None:
-                prediction = self.ml_model.predict(features)[0]
-                
-                # Si la predicción es muy cercana a 0, usar señal técnica
-                if abs(prediction) < 0.1:
-                    return self.generate_technical_signal(step)
-                    
-                return float(prediction)
-            else:
-                return self.generate_technical_signal(step)
-                
+            observation = self.prepare_ml_features(step)
+            observation = observation.reshape(1, -1)  # Reshape para el modelo
+            
+            # Predecir acción
+            action = self.ml_model.predict(observation)[0]
+            
+            # Convertir acción a señal de trading
+            # TODOS los modelos usan acciones discretas ahora
+            if action == 1:  # SELL
+                return -1.0
+            else:  # BUY (action == 0)
+                return 1.0
+            
         except Exception as e:
             print(f"⚠️ Error en ML: {e}")
-            return self.generate_technical_signal(step)
-    
+            return 0
+            
     def generate_technical_signal(self, step):
         """Generar señal técnica más agresiva"""
         if step < 2:
@@ -1033,7 +1052,15 @@ class MLEnhancedTradingSystem(gym.Env):
         ml_signal = self.generate_ml_signal(step)
         tech_signal = self.generate_technical_signal(step)
         
-        # Combinar señales según peso
+        # Guardar señales para tracking
+        self.ml_predictions.append(ml_signal)
+        self.technical_signals.append(tech_signal)
+        
+        # Si el modelo ML no está disponible, usar solo técnico
+        if self.ml_model is None:
+            return tech_signal
+            
+        # Combinar señales con pesos
         combined = (ml_signal * self.ml_weight + 
                    tech_signal * (1 - self.ml_weight))
         
@@ -1045,6 +1072,49 @@ class MLEnhancedTradingSystem(gym.Env):
         else:
             return 0.0  # Hold
     
+    def check_risk_filters(self, step):
+        """Verificar filtros de riesgo antes de operar
+        Retorna: (bool, str) - (passed, reason)"""
+        
+        # 1. Verificar RSI extremo
+        rsi = self.data.iloc[step]['rsi']
+        if rsi > 85 or rsi < 15:
+            return False, f"RSI extremo: {rsi:.1f}"
+            
+        # 2. Verificar volatilidad
+        volatility = self.data.iloc[step]['volatility']
+        avg_volatility = self.data['volatility'].rolling(20).mean().iloc[step]
+        if volatility > avg_volatility * 2:
+            return False, f"Volatilidad alta: {volatility:.4f} vs {avg_volatility:.4f}"
+            
+        # 3. Verificar spread (si está disponible)
+        if 'spread' in self.data.columns:
+            spread = self.data.iloc[step]['spread']
+            avg_spread = self.data['spread'].rolling(20).mean().iloc[step]
+            if spread > avg_spread * 1.5:
+                return False, f"Spread alto: {spread:.1f} vs {avg_spread:.1f}"
+                
+        # 4. Verificar volumen
+        volume = self.data.iloc[step]['volume']
+        avg_volume = self.data['volume'].rolling(20).mean().iloc[step]
+        if volume < avg_volume * 0.5:
+            return False, f"Volumen bajo: {volume:.0f} vs {avg_volume:.0f}"
+            
+        # 5. Verificar tendencia
+        sma_fast = self.data['price'].rolling(10).mean().iloc[step]
+        sma_slow = self.data['price'].rolling(30).mean().iloc[step]
+        trend_strength = abs(sma_fast/sma_slow - 1)
+        if trend_strength < 0.0001:
+            return False, f"Mercado sin tendencia: {trend_strength:.6f}"
+            
+        # 6. Verificar momentum
+        returns = self.data['returns'].iloc[step]
+        avg_returns = self.data['returns'].rolling(5).mean().iloc[step]
+        if abs(returns) > abs(avg_returns) * 3:
+            return False, f"Movimiento brusco: {returns:.4f} vs {avg_returns:.4f}"
+            
+        return True, "OK"
+
     def execute_trade(self, step, signal):
         """Ejecutar trade con validaciones más permisivas"""
         current_price = self.data.iloc[step]['price']
@@ -1092,19 +1162,36 @@ class MLEnhancedTradingSystem(gym.Env):
         
         # VENTA - umbral más bajo
         elif signal < -0.15 and self.position_type == 'LONG':  # Era -0.25
-            profit = (current_price - self.entry_price) * self.position_size
-            self.current_capital += profit
+            # ✅ ARREGLO: Liquidar posición correctamente
+            # Total recibido por la venta
+            total_received = current_price * self.position_size
+            # Devolver el dinero al capital disponible
+            self.current_capital = self.current_capital - (self.position_size * self.entry_price) + total_received
+            profit = total_received - (self.position_size * self.entry_price)
             
             self.sell_signals.append(step)
             
             # Actualizar Action en el DataFrame
             self.data.iloc[step, self.data.columns.get_loc('Action')] = 0  # 0 = Venta
             
+            # Actualizar estadísticas de trading
             if profit > 0:
                 self.profitable_trades += 1
                 self.consecutive_losses = 0
             else:
                 self.consecutive_losses += 1
+            
+            trade_info = {
+                'step': step,
+                'type': 'SELL',
+                'price': current_price,
+                'size': self.position_size,
+                'profit': profit,
+                'signal': signal,
+                'ml_pred': self.ml_predictions[step],
+                'tech_signal': self.technical_signals[step]
+            }
+            self.trades_history.append(trade_info)
             
             print(f"🔴 VENTA: ${current_price:.2f} | P&L: ${profit:.2f} | Señal: {signal:.3f}")
             
@@ -1115,22 +1202,39 @@ class MLEnhancedTradingSystem(gym.Env):
             return True
         
         return False
-    
+
     def calculate_position_size(self, entry_price):
-        """Calcular tamaño de posición"""
+        """Calcular tamaño de posición con gestión de riesgo mejorada"""
         if entry_price <= 0:
             return 0
-        
+            
+        # 1. Calcular riesgo por posición
         stop_loss_price = entry_price * (1 - self.stop_loss_pct)
         risk_per_share = entry_price - stop_loss_price
         
-        max_risk_capital = self.current_capital * self.max_position_risk
+        # 2. Ajustar riesgo según volatilidad
+        volatility = self.data['volatility'].iloc[-1]
+        avg_volatility = self.data['volatility'].rolling(20).mean().iloc[-1]
+        volatility_factor = min(avg_volatility / volatility, 1.0) if volatility > 0 else 0.5
+        
+        # 3. Ajustar riesgo según drawdown
+        max_drawdown = abs(min(0, self.current_capital - self.initial_capital) / self.initial_capital)
+        drawdown_factor = 1.0 - (max_drawdown * 2)  # Reducir posición si hay drawdown
+        
+        # 4. Calcular shares considerando todos los factores
+        max_risk_capital = self.current_capital * self.max_position_risk * volatility_factor * drawdown_factor
         shares = int(max_risk_capital / risk_per_share)
         
-        max_shares_by_capital = int(self.current_capital * 0.9 / entry_price)
+        # 5. Limitar por capital disponible
+        max_shares_by_capital = int(self.current_capital * 0.95 / entry_price)  # 95% del capital
         shares = min(shares, max_shares_by_capital)
         
-        return max(shares, 0)
+        # 6. Establecer límites absolutos
+        min_shares = 5
+        max_shares = 50
+        shares = max(min(shares, max_shares), min_shares)
+        
+        return shares
     
     def check_exit_conditions(self, step):
         """Verificar stop loss y take profit"""
@@ -1166,8 +1270,10 @@ class MLEnhancedTradingSystem(gym.Env):
         exit_condition = self.check_exit_conditions(self.current_step)
         
         if exit_condition == 'STOP_LOSS':
-            profit = (current_price - self.entry_price) * self.position_size
-            self.current_capital += profit
+            # ✅ ARREGLO: Liquidar posición correctamente en stop loss
+            total_received = current_price * self.position_size
+            self.current_capital = self.current_capital - (self.position_size * self.entry_price) + total_received
+            profit = total_received - (self.position_size * self.entry_price)
             self.stop_losses.append(self.current_step)
             self.consecutive_losses += 1
             
@@ -1179,8 +1285,10 @@ class MLEnhancedTradingSystem(gym.Env):
             self.position_type = None
             
         elif exit_condition == 'TAKE_PROFIT':
-            profit = (current_price - self.entry_price) * self.position_size
-            self.current_capital += profit
+            # ✅ ARREGLO: Liquidar posición correctamente en take profit
+            total_received = current_price * self.position_size
+            self.current_capital = self.current_capital - (self.position_size * self.entry_price) + total_received
+            profit = total_received - (self.position_size * self.entry_price)
             self.take_profits.append(self.current_step)
             self.profitable_trades += 1
             self.consecutive_losses = 0
@@ -1198,7 +1306,7 @@ class MLEnhancedTradingSystem(gym.Env):
             self.actions[self.current_step] = signal
             
             # Ejecutar trade si es necesario
-            if abs(signal) > 0.15:  # Umbral más bajo (era 0.25)
+            if signal != 0:  # Si hay señal clara (compra o venta)
                 if signal > 0 and self.position_size == 0:
                     # Actualizar Action en el DataFrame
                     self.data.iloc[self.current_step, self.data.columns.get_loc('Action')] = 1  # 1 = Compra
@@ -1207,10 +1315,15 @@ class MLEnhancedTradingSystem(gym.Env):
                     self.data.iloc[self.current_step, self.data.columns.get_loc('Action')] = 0  # 0 = Venta
                 self.execute_trade(self.current_step, signal)
         
-        # Actualizar portfolio
-        portfolio_value = self.current_capital
+        # ✅ ARREGLO: Calcular portfolio value correctamente para evitar duplicación
         if self.position_size > 0:
-            portfolio_value += self.position_size * current_price
+            # Capital disponible (dinero que no está invertido) + valor actual de la posición
+            invested_amount = self.position_size * self.entry_price
+            available_cash = self.current_capital - invested_amount
+            position_value = self.position_size * current_price
+            portfolio_value = available_cash + position_value
+        else:
+            portfolio_value = self.current_capital
         
         self.portfolio_values[self.current_step] = portfolio_value
         
@@ -1713,13 +1826,37 @@ def main():
     
     try:
         system = MLEnhancedTradingSystem()
+        
+        # Cargar modelo ML real - OBLIGATORIO
+        print("🤖 Cargando modelo de IA real...")
+        if not system.load_ml_model():
+            print("\n❌ ERROR CRÍTICO: No se pudo cargar ningún modelo real")
+            print("💡 SOLUCIONES:")
+            print("   1. Entrena nuevos modelos: python src/agents/train_models.py")
+            print("   2. Verifica que existan los archivos en data/models/")
+            print("   3. Instala dependencias: pip install stable-baselines3")
+            return
+        
+        # Generar datos (históricos o simulados)
+        print("📊 Generando datos de mercado...")
+        system.generate_market_data(1500)
+        
+        # Intentar conectar a MT5 si está habilitado
+        print("🔌 Intentando conectar a MetaTrader5...")
+        if system.connect_mt5():
+            print("✅ MT5 conectado - datos en tiempo real disponibles")
+        else:
+            print("📈 Usando datos simulados")
+        
+        # Crear interfaz gráfica
+        print("🖥️ Creando interfaz gráfica...")
         system.create_interface()
         
     except KeyboardInterrupt:
         print("\n🛑 Sistema detenido por el usuario")
     except Exception as e:
         print(f"\n❌ Error: {e}")
-        print("💡 Asegúrate de tener MetaTrader5 instalado y configurado")
+        print("💡 Verifica instalación de dependencias y modelos entrenados")
     finally:
         # Limpiar recursos
         try:

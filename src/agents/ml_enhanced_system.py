@@ -320,7 +320,7 @@ class MLEnhancedTradingSystem(gym.Env):
                     learning_rate=learning_rate,
                     verbose=1
                 )
-            elif self.algorithm_choice == "3":  # A2C
+            elif self.algorithm_choice == "4":  # A2C
                 # Para A2C, crear un wrapper compatible
                 class A2CEnvWrapper(gym.Env):
                     def __init__(self, base_env):
@@ -344,23 +344,14 @@ class MLEnhancedTradingSystem(gym.Env):
                     learning_rate=0.0003,
                     verbose=1
                 )
-            elif self.algorithm_choice == "4":  # SAC
-                try:
-                    from stable_baselines3 import SAC
-                    model = SAC(
-                        "MlpPolicy",
-                        self,  # Usar self directamente como env
-                        learning_rate=0.0003,
-                        verbose=1
-                    )
-                except ImportError:
-                    print("⚠️ SAC no disponible, usando DQN...")
-                    model = DQN(
-                        MlpPolicy,
-                        self,  # Usar self directamente como env
-                        learning_rate=0.001,
-                        verbose=1
-                    )
+            elif self.algorithm_choice == "3":  # PPO
+                ppo_env = self  # Usar self directamente como env
+                model = PPO(
+                    "MlpPolicy",
+                    ppo_env,
+                    learning_rate=0.0003,
+                    verbose=1
+                )
             
             # Entrenar modelo
             total_timesteps = 100000

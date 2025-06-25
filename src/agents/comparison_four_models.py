@@ -73,12 +73,12 @@ class FourModelsComparison:
         self.window_size = 120
         self.fig = None
         
-        # Colores para cada modelo
+        # Colores profesionales para cada modelo
         self.colors = {
-            'DQN': '#ff6b6b',      # Rojo coral
-            'DeepDQN': '#4ecdc4',  # Turquesa
-            'PPO': '#45b7d1',      # Azul claro
-            'A2C': '#f7b731'       # Amarillo
+            'DQN': '#ff4757',      # Rojo profesional
+            'DeepDQN': '#00d2d3',  # Cian profesional
+            'PPO': '#3742fa',      # Azul profesional
+            'A2C': '#ffa502'       # Naranja profesional
         }
         
     def _configure_systems(self):
@@ -89,7 +89,8 @@ class FourModelsComparison:
         self.dqn_system.algorithm_name = "DQN"
         self.dqn_system.algorithm_class = DQN
         # Configurar espacio de acción discreto para DQN
-        self.dqn_system.action_space = self.dqn_system.action_space
+        from gymnasium import spaces
+        self.dqn_system.action_space = spaces.Discrete(2)
         self.dqn_system.model_paths = {
             "1": [
                 "data/models/qdn/model.zip",
@@ -108,7 +109,7 @@ class FourModelsComparison:
         self.deepdqn_system.algorithm_name = "DeepDQN"
         self.deepdqn_system.algorithm_class = DQN
         # Configurar espacio de acción discreto para DeepDQN
-        self.deepdqn_system.action_space = self.deepdqn_system.action_space
+        self.deepdqn_system.action_space = spaces.Discrete(2)
         self.deepdqn_system.model_paths = {
             "2": [
                 "data/models/deepqdn/model.zip",
@@ -228,24 +229,31 @@ class FourModelsComparison:
     # Intentan cargar modelos ML reales, y si fallan, usan análisis técnico estándar
         
     def create_interface(self):
-        """Crear interfaz gráfica idéntica a la imagen de referencia"""
-        print("🎨 Creando interfaz gráfica...")
+        """Crear interfaz gráfica profesional"""
+        print("🎨 Creando interfaz gráfica profesional...")
         
         # Inicializar sistemas
         self.initialize_systems()
         
-        # Crear figura con fondo negro
-        self.fig = plt.figure(figsize=(20, 10), facecolor='black')
+        # Crear figura con fondo profesional
+        self.fig = plt.figure(figsize=(22, 12), facecolor='#0a0a0a')
         
-        # Título principal
-        self.fig.suptitle("🤖 COMPARACIÓN 4 MODELOS IA REALES: QDN vs DeepQDN vs PPO vs A2C",
-                         fontsize=16, color='white', y=0.98)
+        # Título principal profesional
+        self.fig.suptitle("SISTEMA DE TRADING - COMPARACIÓN DE 4 MODELOS DE INTELIGENCIA ARTIFICIAL",
+                         fontsize=18, color='white', y=0.96, fontweight='bold', 
+                         fontfamily='monospace')
         
-        # Grid para 4 gráficos (2x2)
+        # Subtítulo
+        plt.figtext(0.5, 0.93, "DQN vs DeepDQN vs PPO vs A2C | Análisis Técnico + Machine Learning",
+                   ha='center', color='#cccccc', fontsize=12, fontweight='normal',
+                   fontfamily='monospace')
+        
+        # Grid mejorado para 4 gráficos (2x2) con más espacio
         gs = GridSpec(2, 2, height_ratios=[1, 1], width_ratios=[1, 1],
-                     hspace=0.15, wspace=0.15)
+                     hspace=0.25, wspace=0.20, top=0.88, bottom=0.12, 
+                     left=0.05, right=0.95)
         
-        # Crear subplots
+        # Crear subplots con mejor estilo
         self.axes = {}
         positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
         models = ['DQN', 'DeepDQN', 'PPO', 'A2C']
@@ -254,41 +262,91 @@ class FourModelsComparison:
         
         for (i, j), name, system in zip(positions, models, systems):
             ax = self.fig.add_subplot(gs[i, j])
-            ax.set_facecolor('#1a1a1a')
+            ax.set_facecolor('#111111')
             
-            # Configurar estilo
-            ax.grid(True, alpha=0.2, color='#333333')
+            # Configurar estilo profesional
+            ax.grid(True, alpha=0.3, color='#333333', linewidth=0.5, linestyle='-')
             for spine in ax.spines.values():
-                spine.set_color('#333333')
-            ax.tick_params(colors='#888888')
+                spine.set_color('#555555')
+                spine.set_linewidth(1.5)
+            ax.tick_params(colors='#aaaaaa', labelsize=9)
+            ax.set_xlabel('Tiempo', color='#aaaaaa', fontweight='bold', fontsize=10)
+            ax.set_ylabel('Precio USD', color='#aaaaaa', fontweight='bold', fontsize=10)
             
             self.axes[name] = ax
             
-        # Crear área para botones
+        # Crear área para controles profesionales
         self.button_axes = {}
         
+        # Panel de control con fondo
+        control_bg = plt.axes([0.02, 0.02, 0.96, 0.08])
+        control_bg.set_facecolor('#1a1a1a')
+        control_bg.set_xticks([])
+        control_bg.set_yticks([])
+        for spine in control_bg.spines.values():
+            spine.set_color('#444444')
+            spine.set_linewidth(2)
+        
+        # Botones con texto profesional (sin iconos)
+        button_style = {
+            'facecolor': '#2a2a2a',
+            'edgecolor': '#555555',
+            'linewidth': 2
+        }
+        
         # Botón PLAY
-        self.button_axes['play'] = plt.axes([0.40, 0.02, 0.06, 0.04])
-        self.button_axes['play'].set_facecolor('#2a2a2a')
+        self.button_axes['play'] = plt.axes([0.15, 0.04, 0.08, 0.04])
+        self.button_axes['play'].set_facecolor(button_style['facecolor'])
+        for spine in self.button_axes['play'].spines.values():
+            spine.set_color(button_style['edgecolor'])
+            spine.set_linewidth(button_style['linewidth'])
         self.buttons = {}
-        self.buttons['play'] = Button(self.button_axes['play'], '▶ PLAY', color='white')
+        self.buttons['play'] = Button(self.button_axes['play'], 'PLAY', 
+                                     color='#2a2a2a', hovercolor='#3a3a3a')
+        self.buttons['play'].label.set_fontweight('bold')
+        self.buttons['play'].label.set_fontsize(11)
+        self.buttons['play'].label.set_color('white')
         self.buttons['play'].on_clicked(self._on_play)
         
         # Botón PAUSE
-        self.button_axes['pause'] = plt.axes([0.47, 0.02, 0.06, 0.04])
-        self.button_axes['pause'].set_facecolor('#2a2a2a')
-        self.buttons['pause'] = Button(self.button_axes['pause'], '⏸ PAUSE', color='white')
+        self.button_axes['pause'] = plt.axes([0.24, 0.04, 0.08, 0.04])
+        self.button_axes['pause'].set_facecolor(button_style['facecolor'])
+        for spine in self.button_axes['pause'].spines.values():
+            spine.set_color(button_style['edgecolor'])
+            spine.set_linewidth(button_style['linewidth'])
+        self.buttons['pause'] = Button(self.button_axes['pause'], 'PAUSE', 
+                                      color='#2a2a2a', hovercolor='#3a3a3a')
+        self.buttons['pause'].label.set_fontweight('bold')
+        self.buttons['pause'].label.set_fontsize(11)
+        self.buttons['pause'].label.set_color('white')
         self.buttons['pause'].on_clicked(self._on_pause)
         
         # Botón STOP
-        self.button_axes['stop'] = plt.axes([0.54, 0.02, 0.06, 0.04])
-        self.button_axes['stop'].set_facecolor('#2a2a2a')
-        self.buttons['stop'] = Button(self.button_axes['stop'], '⏹ STOP', color='white')
+        self.button_axes['stop'] = plt.axes([0.33, 0.04, 0.08, 0.04])
+        self.button_axes['stop'].set_facecolor(button_style['facecolor'])
+        for spine in self.button_axes['stop'].spines.values():
+            spine.set_color(button_style['edgecolor'])
+            spine.set_linewidth(button_style['linewidth'])
+        self.buttons['stop'] = Button(self.button_axes['stop'], 'RESET', 
+                                     color='#2a2a2a', hovercolor='#3a3a3a')
+        self.buttons['stop'].label.set_fontweight('bold')
+        self.buttons['stop'].label.set_fontsize(11)
+        self.buttons['stop'].label.set_color('white')
         self.buttons['stop'].on_clicked(self._on_stop)
         
-        # Texto inferior
-        plt.figtext(0.5, 0.02, "QDN(🚀 AGRESIVO-ML) | DeepQDN(🎯 PRECISO-ML) | PPO(⚖️ BALANCEADO-TÉCNICO) | A2C(🛡️ CONSERVADOR-TÉCNICO)",
-                   ha='center', color='white', fontsize=10)
+        # Etiquetas informativas profesionales
+        plt.figtext(0.05, 0.02, "MODELOS:", ha='left', color='white', 
+                   fontsize=11, fontweight='bold', fontfamily='monospace')
+        
+        plt.figtext(0.13, 0.02, "DQN (AGRESIVO) | DeepDQN (PRECISO) | PPO (BALANCEADO) | A2C (CONSERVADOR)",
+                   ha='left', color='#cccccc', fontsize=10, fontweight='normal',
+                   fontfamily='monospace')
+        
+        # Estado del sistema
+        plt.figtext(0.70, 0.04, "SISTEMA:", ha='left', color='white', 
+                   fontsize=11, fontweight='bold', fontfamily='monospace')
+        plt.figtext(0.78, 0.04, "LISTO PARA TRADING", ha='left', color='#00ff00', 
+                   fontsize=10, fontweight='bold', fontfamily='monospace')
         
         # Animación
         self.animation = FuncAnimation(self.fig, self.update_plots, 
@@ -297,32 +355,50 @@ class FourModelsComparison:
         plt.show()
         
     def _on_play(self, event):
-        """Manejador del botón PLAY"""
-        print("▶️ Iniciando simulación...")
+        """Manejador del botón PLAY con feedback visual profesional"""
+        print("▶️ INICIANDO SIMULACIÓN...")
         self.is_playing = True
-        self.buttons['play'].color = '#00ff00'
-        self.buttons['pause'].color = 'white'
-        self.buttons['stop'].color = 'white'
+        
+        # Actualizar colores de botones con estilo profesional
+        self.buttons['play'].color = '#2d5016'  # Verde oscuro activo
+        self.buttons['play'].hovercolor = '#3d6026'
+        self.buttons['pause'].color = '#2a2a2a'  # Gris normal
+        self.buttons['pause'].hovercolor = '#3a3a3a'
+        self.buttons['stop'].color = '#2a2a2a'   # Gris normal
+        self.buttons['stop'].hovercolor = '#3a3a3a'
+        
         plt.draw()
         
     def _on_pause(self, event):
-        """Manejador del botón PAUSE"""
-        print("⏸️ Simulación pausada")
+        """Manejador del botón PAUSE con feedback visual profesional"""
+        print("⏸️ SIMULACIÓN PAUSADA")
         self.is_playing = False
-        self.buttons['play'].color = 'white'
-        self.buttons['pause'].color = '#ffff00'
-        self.buttons['stop'].color = 'white'
+        
+        # Actualizar colores de botones con estilo profesional
+        self.buttons['play'].color = '#2a2a2a'   # Gris normal
+        self.buttons['play'].hovercolor = '#3a3a3a'
+        self.buttons['pause'].color = '#5c4e00'  # Amarillo oscuro activo
+        self.buttons['pause'].hovercolor = '#6c5e10'
+        self.buttons['stop'].color = '#2a2a2a'   # Gris normal
+        self.buttons['stop'].hovercolor = '#3a3a3a'
+        
         plt.draw()
         
     def _on_stop(self, event):
-        """Manejador del botón STOP"""
-        print("⏹️ Simulación detenida")
+        """Manejador del botón STOP con feedback visual profesional"""
+        print("⏹️ SIMULACIÓN REINICIADA")
         self.is_playing = False
         self.current_step = 50
         self.initialize_systems()
-        self.buttons['play'].color = 'white'
-        self.buttons['pause'].color = 'white'
-        self.buttons['stop'].color = '#ff0000'
+        
+        # Actualizar colores de botones con estilo profesional
+        self.buttons['play'].color = '#2a2a2a'   # Gris normal
+        self.buttons['play'].hovercolor = '#3a3a3a'
+        self.buttons['pause'].color = '#2a2a2a'  # Gris normal
+        self.buttons['pause'].hovercolor = '#3a3a3a'
+        self.buttons['stop'].color = '#501616'   # Rojo oscuro activo
+        self.buttons['stop'].hovercolor = '#602626'
+        
         plt.draw()
         
     def play(self):
@@ -353,41 +429,48 @@ class FourModelsComparison:
             self.update_model_plot('A2C', self.a2c_system)
             
     def update_model_plot(self, name, system):
-        """Actualizar gráfico de un modelo específico"""
+        """Actualizar gráfico de un modelo específico con estilo profesional"""
         ax = self.axes[name]
         ax.clear()
         
-        # Configurar estilo
-        ax.set_facecolor('#1a1a1a')
-        ax.grid(True, alpha=0.2, color='#333333')
+        # Configurar estilo profesional
+        ax.set_facecolor('#111111')
+        ax.grid(True, alpha=0.3, color='#333333', linewidth=0.5, linestyle='-')
         for spine in ax.spines.values():
-            spine.set_color('#333333')
-        ax.tick_params(colors='#888888')
+            spine.set_color('#555555')
+            spine.set_linewidth(1.5)
+        ax.tick_params(colors='#aaaaaa', labelsize=9)
+        ax.set_xlabel('Tiempo', color='#aaaaaa', fontweight='bold', fontsize=10)
+        ax.set_ylabel('Precio USD', color='#aaaaaa', fontweight='bold', fontsize=10)
         
         # Datos visibles
         start = max(0, self.current_step - self.window_size)
         end = self.current_step + 1
         
-        # Graficar precio
+        # Graficar precio con línea más gruesa y profesional
         prices = system.data['price'].iloc[start:end]
         dates = range(len(prices))
-        ax.plot(dates, prices, color=self.colors[name], linewidth=1.5)
+        ax.plot(dates, prices, color=self.colors[name], linewidth=2.5, alpha=0.9)
         
-        # Señales
+        # Señales de compra/venta con mejor estilo
         window_buys = [s - start for s in system.buy_signals if start <= s < end]
         window_sells = [s - start for s in system.sell_signals if start <= s < end]
         
         if window_buys:
             buy_prices = [system.data['price'].iloc[s + start] for s in window_buys]
-            ax.scatter(window_buys, buy_prices, color='#00ff00', marker='^', s=100, zorder=5)
+            ax.scatter(window_buys, buy_prices, color='#00ff41', marker='^', 
+                      s=120, zorder=5, edgecolors='white', linewidths=1.5)
             for x, y in zip(window_buys, buy_prices):
-                ax.text(x, y + 0.5, 'BUY', color='#00ff00', ha='center', fontsize=8)
+                ax.text(x, y + 0.5, 'BUY', color='#00ff41', ha='center', 
+                       fontsize=9, fontweight='bold', fontfamily='monospace')
                 
         if window_sells:
             sell_prices = [system.data['price'].iloc[s + start] for s in window_sells]
-            ax.scatter(window_sells, sell_prices, color='#ff0000', marker='v', s=100, zorder=5)
+            ax.scatter(window_sells, sell_prices, color='#ff4444', marker='v', 
+                      s=120, zorder=5, edgecolors='white', linewidths=1.5)
             for x, y in zip(window_sells, sell_prices):
-                ax.text(x, y - 0.5, 'SELL', color='#ff0000', ha='center', fontsize=8)
+                ax.text(x, y - 0.5, 'SELL', color='#ff4444', ha='center', 
+                       fontsize=9, fontweight='bold', fontfamily='monospace')
         
         # ✅ ARREGLO: Calcular portfolio value correctamente
         current_value = system.portfolio_values[self.current_step] if self.current_step < len(system.portfolio_values) else system.initial_capital
@@ -406,37 +489,49 @@ class FourModelsComparison:
         total_return = (current_value / system.initial_capital - 1) * 100
         win_rate = (system.profitable_trades / max(system.total_trades, 1)) * 100
         
-        # Información específica del modelo
-        model_type = ""
-        if name == "DQN":
-            model_type = "🚀 AGRESIVO-ML"
-        elif name == "DeepDQN":
-            model_type = "🎯 PRECISO-ML"  
-        elif name == "PPO":
-            model_type = "⚖️ BALANCEADO-TÉC"
-        elif name == "A2C":
-            model_type = "🛡️ CONSERVADOR-TÉC"
+        # Información específica del modelo profesional
+        model_descriptions = {
+            "DQN": "AGRESIVO | ML",
+            "DeepDQN": "PRECISO | ML",  
+            "PPO": "BALANCEADO | TÉCNICO",
+            "A2C": "CONSERVADOR | TÉCNICO"
+        }
         
-        # ✅ INFORMACIÓN COMPACTA
+        model_type = model_descriptions.get(name, name)
+        
+        # Panel de información profesional
         info_text = f"""{model_type}
-Capital: ${current_value:,.0f}
+CAPITAL: ${current_value:,.0f}
 P&L: ${current_value - system.initial_capital:+,.0f} ({total_return:+.1f}%)
-Posición: {system.position_size}
-Trades: {system.total_trades} | Win: {win_rate:.1f}%
-{'🟢 LONG' if system.position_size > 0 else '⚪ IDLE'}"""
+POSICIÓN: {system.position_size if system.position_size > 0 else 0}
+TRADES: {system.total_trades} | WIN: {win_rate:.1f}%
+ESTADO: {'LONG' if system.position_size > 0 else 'IDLE'}"""
         
-        # Color de la caja según P&L
-        box_color = '#1a3a1a' if total_return >= 0 else '#3a1a1a'
+        # Color del panel según performance
+        if total_return >= 5:
+            box_color = '#1a4a1a'  # Verde oscuro para buena performance
+            border_color = '#00ff41'
+        elif total_return >= 0:
+            box_color = '#2a3a1a'  # Verde muy oscuro para break-even
+            border_color = '#88aa00'
+        else:
+            box_color = '#4a1a1a'  # Rojo oscuro para pérdidas
+            border_color = '#ff4444'
         
-        # ✅ ARREGLO VISUAL: Mover panel a la esquina inferior derecha para que no se superponga
+        # Panel de información en esquina inferior derecha
         ax.text(0.98, 0.02, info_text, transform=ax.transAxes,
-                fontsize=7, color='white', va='bottom', ha='right',
-                bbox=dict(facecolor=box_color, alpha=0.9, edgecolor='#333333', pad=4))
+                fontsize=8, color='white', va='bottom', ha='right',
+                fontweight='bold', fontfamily='monospace',
+                bbox=dict(facecolor=box_color, alpha=0.95, edgecolor=border_color, 
+                         linewidth=2, pad=6))
         
-        # Título con P&L
-        title_color = '#00ff00' if total_return >= 0 else '#ff0000'
-        ax.set_title(f"{name} - ${current_value:,.0f} ({total_return:+.1f}%)",
-                    color=title_color, pad=15)  # Más padding para evitar superposición
+        # Título profesional con indicador de performance
+        performance_indicator = "↗" if total_return >= 0 else "↘"
+        title_color = '#00ff41' if total_return >= 0 else '#ff4444'
+        
+        ax.set_title(f"{name} | ${current_value:,.0f} ({total_return:+.1f}%) {performance_indicator}",
+                    color=title_color, pad=20, fontweight='bold', 
+                    fontsize=12, fontfamily='monospace')
         
     def step_forward(self):
         """Avanzar un paso en todos los sistemas con comportamientos diferenciados"""

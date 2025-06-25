@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-🤖 SISTEMA DE TRADING CON IA + TÉCNICO v2.0
+ML ENHANCED TRADING SYSTEM v2.0
 Arquitectura modular reorganizada
 Combina modelo RL entrenado con análisis técnico tradicional
 Integrado con MetaTrader5 para datos en tiempo real
@@ -9,6 +9,7 @@ Integrado con MetaTrader5 para datos en tiempo real
 import sys
 import os
 import logging
+import logging.config
 import yaml
 from pathlib import Path
 
@@ -26,7 +27,7 @@ def setup_logging():
         
         logging.config.dictConfig(config)
         logger = logging.getLogger('trading_system')
-        logger.info("✅ Logging configurado correctamente")
+        logger.info("[OK] Logging configurado correctamente")
         return logger
     except Exception as e:
         # Fallback a configuración básica
@@ -35,8 +36,8 @@ def setup_logging():
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
         logger = logging.getLogger('trading_system')
-        logger.warning(f"⚠️ Error configurando logging desde YAML: {e}")
-        logger.info("🔄 Usando configuración básica de logging")
+        logger.warning(f"[WARN] Error configurando logging desde YAML: {e}")
+        logger.info("[INFO] Usando configuración básica de logging")
         return logger
 
 def load_config():
@@ -52,13 +53,13 @@ def load_config():
         config.update(trading_config)
         return config
     except Exception as e:
-        logger.error(f"❌ Error cargando configuración: {e}")
+        logger.error(f"[ERROR] Error cargando configuración: {e}")
         return {}
 
 def main():
     """Función principal"""
-    print("🚀 Iniciando ML Enhanced Trading System v2.0")
-    print("📁 Arquitectura modular reorganizada")
+    print("[START] Iniciando ML Enhanced Trading System v2.0")
+    print("[INFO] Arquitectura modular reorganizada")
     
     # Configurar logging
     logger = setup_logging()
@@ -66,51 +67,51 @@ def main():
     # Cargar configuración
     config = load_config()
     if not config:
-        logger.error("❌ No se pudo cargar la configuración")
+        logger.error("[ERROR] No se pudo cargar la configuración")
         return
     
-    logger.info(f"✅ Configuración cargada: {config.get('system', {}).get('name', 'Sistema')}")
+    logger.info(f"[OK] Configuración cargada: {config.get('system', {}).get('name', 'Sistema')}")
     
     try:
         # Importar el sistema principal
         from agents.ml_enhanced_system import MLEnhancedTradingSystem
         
         # Crear e inicializar el sistema
-        logger.info("🔄 Inicializando sistema de trading...")
+        logger.info("[INFO] Inicializando sistema de trading...")
         trading_system = MLEnhancedTradingSystem()
         
         # Cargar modelo ML si está disponible
-        logger.info("🤖 Cargando modelo de IA...")
+        logger.info("[INFO] Cargando modelo de IA...")
         if not trading_system.load_ml_model():
-            logger.info("🔧 Creando modelo técnico avanzado...")
+            logger.info("[INFO] Creando modelo técnico avanzado...")
             trading_system.create_simple_ml_model()
         
         # Generar datos (históricos o simulados)
-        logger.info("📊 Generando datos de mercado...")
+        logger.info("[INFO] Generando datos de mercado...")
         trading_system.generate_market_data(config.get('data', {}).get('history_size', 1500))
         
         # Intentar conectar a MT5 si está habilitado
         if config.get('mt5', {}).get('enabled', True):
-            logger.info("🔌 Intentando conectar a MetaTrader5...")
+            logger.info("[INFO] Intentando conectar a MetaTrader5...")
             if trading_system.connect_mt5():
-                logger.info("✅ MT5 conectado - datos en tiempo real disponibles")
+                logger.info("[OK] MT5 conectado - datos en tiempo real disponibles")
             else:
-                logger.info("📈 Usando datos simulados")
+                logger.info("[INFO] Usando datos simulados")
         
         # Crear interfaz gráfica
-        logger.info("🖥️ Creando interfaz gráfica...")
+        logger.info("[INFO] Creando interfaz gráfica...")
         trading_system.create_interface()
         
-        logger.info("🎉 Sistema iniciado correctamente")
-        logger.info("💡 Usa los controles para navegar y operar")
+        logger.info("[OK] Sistema iniciado correctamente")
+        logger.info("[INFO] Usa los controles para navegar y operar")
         
     except ImportError as e:
-        logger.error(f"❌ Error importando módulos: {e}")
-        logger.info("💡 Verifica que todos los archivos estén en su lugar")
+        logger.error(f"[ERROR] Error importando módulos: {e}")
+        logger.info("[INFO] Verifica que todos los archivos estén en su lugar")
         return
     except Exception as e:
-        logger.error(f"❌ Error inesperado: {e}")
-        logger.info("💡 Revisa los logs para más detalles")
+        logger.error(f"[ERROR] Error inesperado: {e}")
+        logger.info("[INFO] Revisa los logs para más detalles")
         return
 
 if __name__ == "__main__":

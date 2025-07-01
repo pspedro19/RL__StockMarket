@@ -1,0 +1,56 @@
+# Configuración principal del sistema de trading ML Enhanced
+system:
+  name: "ML Enhanced Trading System"
+  version: "2.0.0"
+  environment: "production"
+
+# Configuración de datos
+data:
+  symbol: "US500"
+  timeframe: "M1"
+  history_size: 1500
+  window_size: 150
+  data_dir: "data"
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  models_dir: "data/models"
+  results_dir: "data/results"
+
+# Configuración del portfolio
+portfolio:
+  initial_capital: 100000
+  max_position_risk: 0.03      # 3%
+  stop_loss_pct: 0.02          # 2%
+  take_profit_pct: 0.04        # 4%
+  max_daily_trades: 5
+  min_trade_separation: 3
+
+# Configuración del modelo ML
+ml:
+  use_ml_signals: true
+  ml_weight: 0.6               # 60% IA, 40% técnico
+  model_paths:
+    - "data/models/dqn_final.zip"
+    - "data/models/sac_final.zip"
+    - "data/models/ppo_final.zip"
+    - "data/models/best_dqn/model.zip"
+    - "data/models/best_sac/model.zip"
+    - "data/models/best_ppo/model.zip"
+
+# Configuración de MetaTrader5
+mt5:
+  enabled: true
+  symbols_alternatives:
+    - "US500"
+    - "SP500"
+    - "SPX500"
+    - "US500m"
+    - "USTEC"
+    - "SPX"
+  
+# Configuración de visualización
+visualization:
+  update_interval: 1000        # ms
+  auto_scroll: true
+  show_signals: true
+  show_portfolio: true 

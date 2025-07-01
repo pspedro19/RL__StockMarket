@@ -1,0 +1,8 @@
+{
+  "algorithm": "DQN",
+  "total_timesteps": 10000,
+  "training_time": "0:01:15.567577",
+  "env_config": {},
+  "model_config": {},
+  "timestamp": "2025-06-17T14:51:06.251109"
+}

@@ -40,14 +40,18 @@ data/models/*.pkl
 data/models/*.pth
 data/models/*.h5
 data/models/*.joblib
-data/models/*.zip
+# data/models/*.zip  # Permitir modelos ZIP para facilitar el uso
 data/results/*.png
 data/results/*.html
 data/results/*.pdf
+data/results/trading_analysis/csv_exports/*.csv
+data/results/trading_analysis/visualizations/*.png
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/models/.gitkeep
 !data/results/.gitkeep
+!data/results/trading_analysis/csv_exports/.gitkeep
+!data/results/trading_analysis/visualizations/.gitkeep
 
 # Logs
 logs/*

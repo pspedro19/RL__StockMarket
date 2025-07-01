@@ -1,111 +1,103 @@
+"""
+Agente Simple de Trading
+Implementación básica de un agente de RL para trading
+"""
+
 import numpy as np
-import pandas as pd
-from stable_baselines3 import DQN
-from gymnasium import spaces
-import gymnasium as gym
+import logging
 
-class TradingEnv(gym.Env):
-    """Entorno de trading simple para RL"""
+logger = logging.getLogger('simple_agent')
+
+class SimpleAgent:
+    """Agente de trading simple basado en reglas"""
     
-    def __init__(self, data: pd.DataFrame, initial_balance: float = 10000):
-        super().__init__()
-        
-        self.data = data.copy()
-        self.initial_balance = initial_balance
-        self.current_step = 0
-        self.max_steps = len(data) - 1
-        
-        # Espacio de acciones: [0=Hold, 1=Buy, 2=Sell]
-        self.action_space = spaces.Discrete(3)
-        
-        # Espacio de observaciones: [price, volume, balance, position]
-        self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(4,), dtype=np.float32
-        )
-        
-        self.reset()
-    
-    def reset(self, seed=None):
-        super().reset(seed=seed)
-        self.current_step = 0
-        self.balance = self.initial_balance
+    def __init__(self, action_space=3):
+        """
+        Inicializar agente simple
+        action_space: 0=Venta, 1=Compra, 2=Hold
+        """
+        self.action_space = action_space
+        self.last_action = 2  # Hold por defecto
         self.position = 0
-        self.entry_price = 0
         
-        return self._get_observation(), {}
+    def predict(self, observation):
+        """
+        Predecir acción basada en observación
+        observation: array con features [price, rsi, macd, bb_pos, volume_ratio, momentum]
+        """
+        try:
+            if len(observation) < 6:
+                return np.array([[2]])  # Hold si no hay suficientes features
+            
+            # Extraer features
+            price_norm = observation[0] if len(observation) > 0 else 0.5
+            rsi = observation[1] if len(observation) > 1 else 0.5
+            macd = observation[2] if len(observation) > 2 else 0
+            bb_pos = observation[3] if len(observation) > 3 else 0.5
+            volume_ratio = observation[4] if len(observation) > 4 else 1
+            momentum = observation[5] if len(observation) > 5 else 0
+            
+            # Lógica de decisión simple
+            signals = []
+            
+            # Señal RSI
+            if rsi < 0.3:  # Sobreventa
+                signals.append(1)  # Compra
+            elif rsi > 0.7:  # Sobrecompra
+                signals.append(0)  # Venta
+            
+            # Señal MACD
+            if macd > 0.01:
+                signals.append(1)  # Compra
+            elif macd < -0.01:
+                signals.append(0)  # Venta
+            
+            # Señal Bollinger Bands
+            if bb_pos < 0.2:  # Cerca del límite inferior
+                signals.append(1)  # Compra
+            elif bb_pos > 0.8:  # Cerca del límite superior
+                signals.append(0)  # Venta
+            
+            # Señal de momentum
+            if momentum > 0.02:
+                signals.append(1)  # Compra
+            elif momentum < -0.02:
+                signals.append(0)  # Venta
+            
+            # Decidir por mayoría
+            if len(signals) >= 2:
+                if signals.count(1) > signals.count(0):
+                    action = 1  # Compra
+                elif signals.count(0) > signals.count(1):
+                    action = 0  # Venta
+                else:
+                    action = 2  # Hold
+            else:
+                action = 2  # Hold por defecto
+            
+            self.last_action = action
+            return np.array([[action]])
+            
+        except Exception as e:
+            logger.error(f"Error en predicción: {e}")
+            return np.array([[2]])  # Hold en caso de error
     
-    def step(self, action):
-        if self.current_step >= self.max_steps:
-            return self._get_observation(), 0, True, True, {}
-        
-        current_price = self.data.iloc[self.current_step]['close']
-        reward = 0
-        
-        # Ejecutar acción
-        if action == 1 and self.position == 0:  # Buy
-            self.position = 1
-            self.entry_price = current_price
-        elif action == 2 and self.position == 0:  # Sell
+    def get_action_name(self, action):
+        """Obtener nombre de la acción"""
+        actions = {0: "VENTA", 1: "COMPRA", 2: "HOLD"}
+        return actions.get(action, "UNKNOWN")
+    
+    def update_position(self, action):
+        """Actualizar posición basada en acción"""
+        if action == 0:  # Venta
             self.position = -1
-            self.entry_price = current_price
-        elif action == 0 and self.position != 0:  # Close position
-            if self.position == 1:  # Close long
-                reward = (current_price - self.entry_price) / self.entry_price
-            else:  # Close short
-                reward = (self.entry_price - current_price) / self.entry_price
-            self.position = 0
-            self.entry_price = 0
-        
-        self.current_step += 1
-        done = self.current_step >= self.max_steps
-        
-        return self._get_observation(), reward, done, False, {}
+        elif action == 1:  # Compra
+            self.position = 1
+        else:  # Hold
+            pass  # Mantener posición actual
     
-    def _get_observation(self):
-        if self.current_step >= len(self.data):
-            return np.array([0, 0, self.balance, self.position], dtype=np.float32)
-        
-        row = self.data.iloc[self.current_step]
-        return np.array([
-            row['close'] / 1000,
-            row['volume'] / 1000,
-            self.balance / self.initial_balance,
-            self.position
-        ], dtype=np.float32)
-
-def test_agent():
-    """Probar agente básico"""
-    print("🤖 Probando agente RL básico...")
-    
-    try:
-        data = pd.read_csv('data/raw/EURUSD_7days.csv')
-        print(f"📊 Datos cargados: {len(data)} registros")
-    except FileNotFoundError:
-        print("❌ No se encontraron datos. Ejecuta primero data_generator.py")
-        return
-    
-    env = TradingEnv(data)
-    model = DQN("MlpPolicy", env, verbose=1, learning_rate=1e-3)
-    print("✅ Agente DQN creado")
-    
-    print("🏋️ Entrenando por 1000 pasos...")
-    model.learn(total_timesteps=1000)
-    
-    obs, _ = env.reset()
-    total_reward = 0
-    actions_taken = []
-    
-    for i in range(100):
-        action, _ = model.predict(obs, deterministic=True)
-        actions_taken.append(int(action))  # Convertir a int
-        obs, reward, done, _, _ = env.step(action)
-        total_reward += reward
-        if done:
-            break
-    
-    print(f"🎯 Recompensa total: {total_reward:.4f}")
-    print(f"📈 Acciones únicas: {len(set(actions_taken))} tipos")
-    print("✅ Agente funcionando correctamente!")
-
-if __name__ == "__main__":
-    test_agent()
+    def reset(self):
+        """Resetear agente"""
+        self.last_action = 2
+        self.position = 0
+        logger.info("🔄 Agente simple reseteado") 

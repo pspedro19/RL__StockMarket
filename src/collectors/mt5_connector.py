@@ -1,148 +1,194 @@
-import MetaTrader5 as mt5
-import pandas as pd
+"""
+Conector especializado para MetaTrader5
+Maneja la conexión, obtención de datos y validación de símbolos
+"""
+
 import numpy as np
-from datetime import datetime, timezone, timedelta
+import pandas as pd
+from datetime import datetime, timedelta, timezone
+import time
 import logging
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
+# Configurar logger
+logger = logging.getLogger('mt5_connector')
 
-@dataclass
-class MT5Config:
-    login: int
-    password: str
-    server: str
-    timeout: int = 60000
-    path: Optional[str] = None
+try:
+    import MetaTrader5 as mt5
+    HAS_MT5 = True
+    logger.info("✅ MetaTrader5 disponible")
+except ImportError:
+    HAS_MT5 = False
+    logger.warning("⚠️ MetaTrader5 no disponible")
 
 class MT5Connector:
-    """Conector principal para MetaTrader 5"""
+    """Conector especializado para MetaTrader5"""
     
-    def __init__(self, config: MT5Config):
-        self.config = config
-        self.logger = logging.getLogger(__name__)
+    def __init__(self, symbol="US500", timeframe=None):
+        self.symbol = symbol
+        self.timeframe = timeframe if timeframe else (mt5.TIMEFRAME_M1 if HAS_MT5 else None)
         self.connected = False
-
-    def connect(self) -> bool:
-        """Conectar a MT5"""
-        try:
-            # Inicializar MT5
-            if self.config.path:
-                if not mt5.initialize(self.config.path):
-                    self.logger.error(f"Error al inicializar MT5: {mt5.last_error()}")
-                    return False
-            else:
-                if not mt5.initialize():
-                    self.logger.error(f"Error al inicializar MT5: {mt5.last_error()}")
-                    return False
-
-            # Login
-            authorized = mt5.login(
-                self.config.login,
-                password=self.config.password,
-                server=self.config.server,
-                timeout=self.config.timeout
-            )
+        self.last_update = datetime.now()
+        
+        # Símbolos alternativos para diferentes brokers
+        self.symbol_alternatives = [
+            "US500", "SP500", "SPX500", "US500m", "USTEC", "SPX"
+        ]
+        
+    def connect(self):
+        """Conectar a MetaTrader5 con diagnóstico completo"""
+        if not HAS_MT5:
+            logger.error("❌ MetaTrader5 no está instalado")
+            logger.info("💡 Solución: Instala MT5 desde https://www.metaquotes.net/es/metatrader5")
+            return False
             
-            if not authorized:
-                self.logger.error(f"Error de login: {mt5.last_error()}")
-                mt5.shutdown()
+        try:
+            logger.info("🔄 Intentando conectar a MetaTrader5...")
+            
+            # Intentar inicializar
+            if not mt5.initialize():
+                error_code = mt5.last_error()
+                logger.error(f"❌ Error inicializando MT5: {error_code}")
+                logger.info("💡 Soluciones:")
+                logger.info("   1. Abre MetaTrader5 manualmente")
+                logger.info("   2. Configura una cuenta demo")
+                logger.info("   3. Asegúrate de que MT5 esté ejecutándose")
                 return False
-
-            # Obtener info de la cuenta
+            
+            logger.info("✅ MT5 inicializado correctamente")
+            
+            # Verificar conexión al servidor
             account_info = mt5.account_info()
             if account_info is None:
-                self.logger.error("No se pudo obtener info de la cuenta")
+                logger.error("❌ No hay cuenta configurada en MT5")
+                logger.info("💡 Solución: Configura una cuenta demo en MT5")
                 return False
-
-            self.logger.info(f"Conectado exitosamente a MT5")
-            self.logger.info(f"Cuenta: {account_info.login}")
-            self.logger.info(f"Balance: ${account_info.balance:,.2f}")
-            self.logger.info(f"Servidor: {account_info.server}")
+            
+            logger.info(f"✅ Cuenta conectada: {account_info.login} - {account_info.server}")
+            
+            # Verificar y configurar símbolo
+            if not self._setup_symbol():
+                return False
             
             self.connected = True
+            logger.info(f"🎉 Conexión MT5 exitosa - Símbolo: {self.symbol}")
             return True
             
         except Exception as e:
-            self.logger.error(f"Error al conectar: {e}")
+            logger.error(f"❌ Error conectando MT5: {e}")
+            logger.info("💡 Soluciones:")
+            logger.info("   1. Reinstala MetaTrader5")
+            logger.info("   2. Ejecuta como administrador")
+            logger.info("   3. Verifica que no esté bloqueado por antivirus")
             return False
-
-    def disconnect(self):
-        """Desconectar de MT5"""
-        if self.connected:
-            mt5.shutdown()
-            self.connected = False
-            self.logger.info("Desconectado de MT5")
-
-    def get_symbols(self) -> List[str]:
-        """Obtener lista de símbolos disponibles"""
-        symbols = mt5.symbols_get()
-        if symbols is None:
-            return []
-
-        # Filtrar símbolos activos y visibles
-        active_symbols = [s.name for s in symbols if s.visible]
+    
+    def _setup_symbol(self):
+        """Configurar y verificar el símbolo de trading"""
+        logger.info(f"🔍 Buscando símbolo {self.symbol}...")
+        symbol_info = mt5.symbol_info(self.symbol)
         
-        # Filtrar los que nos interesan
-        desired = os.getenv('SYMBOLS', '').split(',')
-        available = []
-        for symbol in active_symbols:
-            for desired_symbol in desired:
-                if desired_symbol.strip() in symbol:
-                    available.append(symbol)
+        if symbol_info is None:
+            logger.warning(f"❌ Símbolo {self.symbol} no encontrado")
+            logger.info("💡 Símbolos alternativos para SP500:")
+            
+            # Buscar símbolos alternativos
+            for alt in self.symbol_alternatives:
+                if mt5.symbol_info(alt) is not None:
+                    logger.info(f"   ✅ Encontrado: {alt}")
+                    self.symbol = alt
+                    symbol_info = mt5.symbol_info(alt)
                     break
+                else:
+                    logger.info(f"   ❌ No disponible: {alt}")
+            
+            if symbol_info is None:
+                logger.error("❌ No se encontró ningún símbolo SP500")
+                logger.info("💡 Contacta a tu broker para obtener el símbolo correcto")
+                return False
         
-        self.logger.info(f"Símbolos disponibles: {available}")
-        return available
-
-    def get_tick(self, symbol: str) -> Optional[Dict]:
-        """Obtener tick actual"""
-        tick = mt5.symbol_info_tick(symbol)
-        if tick is None:
+        # Activar símbolo si no está visible
+        if not symbol_info.visible:
+            logger.info(f"🔄 Activando símbolo {self.symbol}...")
+            if not mt5.symbol_select(self.symbol, True):
+                logger.error(f"❌ Error activando símbolo {self.symbol}")
+                return False
+        
+        logger.info(f"✅ Símbolo {self.symbol} listo - Spread: {symbol_info.spread}")
+        return True
+    
+    def get_historical_data(self, count=1000):
+        """Obtener datos históricos"""
+        if not self.connected:
+            logger.error("❌ No conectado a MT5")
             return None
             
-        return {
-            'time': datetime.fromtimestamp(tick.time, tz=timezone.utc),
-            'symbol': symbol,
-            'bid': tick.bid,
-            'ask': tick.ask,
-            'last': tick.last,
-            'volume': tick.volume,
-            'flags': tick.flags,
-            'spread': tick.ask - tick.bid,
-            'mid_price': (tick.bid + tick.ask) / 2
-        }
-
-# Función de utilidad para probar conexión
-def test_connection():
-    """Probar conexión a MT5"""
-    config = MT5Config(
-        login=int(os.getenv('MT5_LOGIN', 0)),
-        password=os.getenv('MT5_PASSWORD', ''),
-        server=os.getenv('MT5_SERVER', ''),
-        path=os.getenv('MT5_PATH')
-    )
-    
-    connector = MT5Connector(config)
-    if connector.connect():
-        print("✅ Conexión exitosa!")
-        
-        # Probar obtener símbolos
-        symbols = connector.get_symbols()
-        print(f"📊 Símbolos disponibles: {symbols}")
-        
-        # Probar obtener tick
-        if symbols:
-            tick = connector.get_tick(symbols[0])
-            print(f"📈 Tick actual de {symbols[0]}: {tick}")
+        try:
+            # Obtener datos históricos
+            rates = mt5.copy_rates_from_pos(self.symbol, self.timeframe, 0, count)
             
-        connector.disconnect()
-    else:
-        print("❌ Error al conectar")
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    test_connection()
+            if rates is None or len(rates) == 0:
+                logger.error("❌ No se pudieron obtener datos históricos")
+                return None
+            
+            # Convertir a DataFrame
+            df = pd.DataFrame(rates)
+            df['time'] = pd.to_datetime(df['time'], unit='s')
+            df.set_index('time', inplace=True)
+            
+            logger.info(f"✅ Obtenidos {len(df)} datos históricos desde {df.index[0]} hasta {df.index[-1]}")
+            return df
+            
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo datos históricos: {e}")
+            return None
+    
+    def get_real_time_data(self, count=1000):
+        """Obtener datos en tiempo real"""
+        if not self.connected:
+            return None
+            
+        try:
+            # Obtener hora actual
+            now = datetime.now(timezone.utc)
+            
+            # Obtener datos más recientes
+            rates = mt5.copy_rates_from(self.symbol, self.timeframe, now, count)
+            
+            if rates is None or len(rates) == 0:
+                logger.warning("⚠️ No se pudieron obtener datos en tiempo real")
+                return None
+            
+            # Convertir a DataFrame
+            df = pd.DataFrame(rates)
+            df['time'] = pd.to_datetime(df['time'], unit='s')
+            df.set_index('time', inplace=True)
+            
+            # Actualizar timestamp
+            self.last_update = datetime.now()
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo datos en tiempo real: {e}")
+            return None
+    
+    def get_symbol_info(self):
+        """Obtener información del símbolo"""
+        if not self.connected:
+            return None
+            
+        try:
+            return mt5.symbol_info(self.symbol)
+        except Exception as e:
+            logger.error(f"❌ Error obteniendo info del símbolo: {e}")
+            return None
+    
+    def disconnect(self):
+        """Desconectar de MT5"""
+        if HAS_MT5 and self.connected:
+            mt5.shutdown()
+            self.connected = False
+            logger.info("🔌 Desconectado de MT5")
+    
+    def __del__(self):
+        """Cleanup al destruir el objeto"""
+        self.disconnect() 

@@ -1,88 +1,239 @@
-# Trading RL System 🚀
+# 🚀 RL Stock Market Trading System
 
-Sistema de trading automatizado con Reinforcement Learning y MetaTrader 5.
+Sistema avanzado de trading con Inteligencia Artificial para SP500 y Bitcoin.
 
-## ✨ Características
+## ✨ Características Principales
 
-- 🔌 Conexión directa con MetaTrader 5
-- 🧠 Algoritmos de Reinforcement Learning (SAC)
-- 📊 Features técnicas avanzadas
-- 🗄️ Base de datos TimescaleDB
-- 📈 Monitoreo en tiempo real
-- 🛡️ Gestión de riesgo integrada
+- 🎯 **IDs únicos para trades** con formato `T00001_20241201_123456_ABC12345`
+- 📊 **Métricas financieras avanzadas**: Sharpe ratio, Drawdown, Profit Factor, MAPE
+- 🤖 **Control PID** para optimización automática de señales
+- 🔬 **Machine Learning** con evaluación MAPE de predicciones
+- 📈 **Datos reales SP500** (Yahoo Finance) y preparación para Bitcoin (Binance API)
+- 📋 **Exportación completa CSV** para análisis externos
+- 🎨 **Visualizaciones separadas** y dashboard profesional
+- 📓 **Jupyter Notebook** interactivo
 
-## 🛠️ Instalación
+## 🗂️ Estructura del Proyecto
 
-### 1. Configurar entorno
+```
+RL__StockMarket/
+├── 🚀 run_trading_analysis.py           # SCRIPT PRINCIPAL
+├── 📁 src/                              # Código fuente
+│   ├── agents/                         # Sistemas de trading IA
+│   ├── collectors/                     # Recolectores de datos
+│   ├── trading/                        # Lógica de trading
+│   └── utils/                          # Utilidades
+├── 📁 scripts/                          # Scripts auxiliares
+│   ├── generate_clean_visualizations.py
+│   └── generate_multiple_charts.py
+├── 📁 notebooks/                        # Análisis interactivo
+│   └── advanced_trading_notebook.ipynb # Notebook completo
+├── 📁 data/                            # Datos y resultados
+│   ├── models/                         # Modelos entrenados
+│   ├── results/trading_analysis/       # Resultados organizados
+│   │   ├── 📊 visualizations/          # PNG (15+ archivos)
+│   │   └── 📋 csv_exports/             # CSV (3 archivos)
+│   ├── processed/                      # Datos procesados
+│   └── raw/                           # Datos en bruto
+├── 📁 configs/                          # Configuraciones
+├── 📁 docs/                            # Documentación
+├── 📁 testing/                          # Pruebas y debug
+├── 📁 utils/                           # Herramientas de instalación
+├── 📁 deployment/                       # Docker y despliegue
+├── 📁 monitoring/                       # Grafana y Prometheus
+├── 📁 legacy/                          # Versiones anteriores
+└── 📁 logs/                            # Archivos de log
+```
+
+## 🚀 Inicio Rápido
+
+### 1. Ejecución Simple (Recomendado)
+
 ```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# o venv\Scripts\activate  # Windows
+# Desde la raíz del proyecto
+python run_trading_analysis.py
+```
 
+Este script te guiará con un menú interactivo:
+- ✅ Análisis completo (recomendado)
+- 📊 Solo visualizaciones  
+- 📋 Solo exportar CSV
+- 📓 Abrir notebook Jupyter
+- 📁 Mostrar ubicaciones de archivos
+
+### 2. Ejecución Manual
+
+```bash
+# Análisis completo con visualizaciones y CSV
+python scripts/generate_clean_visualizations.py
+
+# Notebook interactivo
+jupyter notebook notebooks/advanced_trading_notebook.ipynb
+```
+
+## 📊 Archivos Generados
+
+### 🎨 Visualizaciones (PNG)
+**Ubicación:** `data/results/trading_analysis/visualizations/`
+
+1. **01_precio_y_trades_detallado.png** - Precio SPY con trades marcados
+2. **02_metricas_financieras_panel.png** - Panel de KPIs financieros
+3. **03_distribuciones_estadisticas.png** - Distribuciones de retornos
+4. **04_equity_y_drawdown.png** - Curva de equity y drawdown
+5. **05_analisis_performance.png** - Análisis avanzado de performance
+6. **06_tabla_trades_detallada.png** - Tabla visual de trades
+7. **dashboard_avanzado.png** - Dashboard completo (18 paneles)
+
+### 📋 Datos CSV
+**Ubicación:** `data/results/trading_analysis/csv_exports/`
+
+1. **trades_detallados.csv** - Datos completos de cada trade
+2. **metricas_resumen.csv** - KPIs del sistema
+3. **estadisticas_adicionales.csv** - Estadísticas adicionales
+
+## 📈 Métricas Implementadas
+
+### 💰 Financieras
+- **Retorno Total** (absoluto y porcentual)
+- **Win Rate** (porcentaje de trades ganadores)
+- **Profit Factor** (ganancia total / pérdida total)
+- **Sharpe Ratio** (retorno ajustado por riesgo)
+- **Max Drawdown** (máxima pérdida desde pico)
+
+### 🤖 Machine Learning
+- **MAPE** (Mean Absolute Percentage Error)
+- **Learning Curves** para modelos RL
+- **Control PID** automático
+
+### 📊 Operacionales
+- **Duración promedio** de trades
+- **Trades consecutivos** (rachas ganadoras/perdedoras)
+- **Distribución de retornos**
+- **Análisis de volatilidad**
+
+## 🔧 Configuración
+
+### SP500 (Activo por defecto)
+No requiere configuración. Usa datos de Yahoo Finance.
+
+### Bitcoin (Binance API)
+1. Copia `configs/binance.env.example` a `configs/binance.env`
+2. Agrega tus credenciales de Binance:
+```env
+BINANCE_API_KEY=tu_api_key
+BINANCE_SECRET_KEY=tu_secret_key
+BINANCE_TESTNET=True  # Para testnet
+```
+
+## 🛠️ Instalación de Dependencias
+
+### 🚀 Instalación Rápida (Recomendado)
+```bash
+# Dependencias esenciales (más estable)
+pip install -r requirements-minimal.txt
+
+# O dependencias completas (más funciones)
 pip install -r requirements.txt
 ```
 
-### 2. Configurar variables de entorno
+### 🔧 Instalación con Scripts
 ```bash
-cp .env.example .env
-nano .env  # Editar con tus credenciales MT5
+# Básica
+python utils/install_dependencies.py
+
+# Avanzada (incluye ML completo)
+python utils/install_advanced_dependencies.py
 ```
 
-### 3. Iniciar servicios (opcional)
-```bash
-docker-compose up -d
+### 📦 Dependencias por Categoría
+
+#### Esenciales (Siempre requeridas)
+- `pandas, numpy` - Análisis de datos
+- `matplotlib, seaborn` - Visualizaciones
+- `yfinance` - Datos SP500
+- `scikit-learn` - Métricas ML (Sharpe, MAPE)
+
+#### Trading APIs
+- `ccxt` - Binance API para Bitcoin
+- `MetaTrader5` - Datos MT5 (opcional, solo Windows)
+
+#### Machine Learning Completo
+- `stable-baselines3, torch` - Algoritmos RL
+- `tensorflow, keras` - Redes neuronales
+- `optuna` - Optimización de hiperparámetros
+
+#### Análisis Avanzado
+- `ta, pandas-ta` - Indicadores técnicos
+- `plotly, dash` - Gráficos interactivos
+- `jupyter` - Notebooks interactivos
+
+## 🎯 Casos de Uso
+
+### 📊 Análisis de Backtesting
+```python
+from src.agents.advanced_trading_analytics import AdvancedTradingAnalytics
+
+# Crear sistema
+system = AdvancedTradingAnalytics(symbol='SPY')
+system.load_sp500_data(period='1y')
+
+# Ejecutar backtest
+metrics = system.run_backtest()
+print(f"Win Rate: {metrics['win_rate']:.1f}%")
+print(f"Retorno Total: ${metrics['total_return_abs']:.2f}")
 ```
 
-## 🚀 Uso Rápido
-
-### 1. Probar conexión MT5
-```bash
-python src/collectors/mt5_connector.py
+### 📈 Trading en Vivo (Preparado)
+```python
+# Configurar para Binance
+system = AdvancedTradingAnalytics(symbol='BTCUSDT', use_binance=True)
+# Requiere configuración de API keys
 ```
 
-### 2. Entrenar modelo básico
-```bash
-python src/agents/train.py
+## 📋 Estructura de Trade ID
+
+Cada trade tiene un ID único con formato:
+```
+T00001_20241201_123456_ABC12345
+│  │      │       │       │
+│  │      │       │       └── Hash único (8 chars)
+│  │      │       └────────── Hora (HHMMSS)
+│  │      └────────────────── Fecha (YYYYMMDD)
+│  └───────────────────────── Número secuencial
+└──────────────────────────── Prefijo 'T'
 ```
 
-### 3. Monitor en tiempo real
-```bash
-python src/utils/currency_monitor.py
-```
+## 🔍 Monitoreo en Tiempo Real
 
-## 📁 Estructura del Proyecto
+El sistema incluye:
+- ✅ **Control PID** para ajuste automático de señales
+- ✅ **MAPE tracking** para calidad de predicciones ML
+- ✅ **Real-time metrics** durante backtest
+- ✅ **Learning curves** para modelos RL
 
-```
-trading-rl-system/
-├── src/                    # Código fuente
-│   ├── collectors/         # Recolección de datos MT5
-│   ├── agents/            # Modelos RL
-│   ├── trading/           # Ejecución de trades
-│   ├── analysis/          # Backtesting y análisis
-│   └── utils/             # Utilidades
-├── data/                  # Datos y modelos
-│   ├── raw/              # Datos crudos
-│   ├── processed/        # Datos con features
-│   ├── models/           # Modelos entrenados
-│   └── results/          # Resultados
-├── configs/              # Configuraciones
-├── scripts/              # Scripts de utilidad
-├── tests/                # Tests
-└── monitoring/           # Grafana + Prometheus
-```
+## 🤝 Contribución
 
-## ⚠️ Advertencias
+1. Fork del repositorio
+2. Crear branch: `git checkout -b feature/nueva-funcionalidad`
+3. Commit: `git commit -am 'Agregar nueva funcionalidad'`
+4. Push: `git push origin feature/nueva-funcionalidad`
+5. Pull Request
 
-- 🧪 **Sistema educativo**: Para aprendizaje y experimentación
-- 💰 **Solo cuenta demo**: Nunca usar dinero real sin pruebas extensas
-- 📊 **Resultados pasados**: No garantizan rendimientos futuros
-- ⚖️ **Riesgo**: El trading conlleva riesgos significativos
+## 📄 Licencia
 
-## 📞 Soporte
+Este proyecto está bajo la Licencia MIT. Ver `LICENSE` para más detalles.
 
-Si encuentras problemas:
-1. Revisa que MT5 esté abierto y conectado
-2. Verifica las credenciales en .env
-3. Chequea los logs en logs/
+## 🆘 Soporte
 
-¡Happy Trading! 📈
+- 📧 Crear un Issue en GitHub
+- 📖 Revisar la documentación en `docs/`
+- 🚀 Ejecutar `python run_trading_analysis.py` para guía interactiva
+
+---
+
+**🎯 Próximos Pasos:**
+1. Ejecutar análisis con `python run_trading_analysis.py`
+2. Revisar visualizaciones generadas
+3. Analizar CSV con tus herramientas favoritas
+4. Configurar Binance API para trading Bitcoin
+5. Personalizar estrategias en el código fuente

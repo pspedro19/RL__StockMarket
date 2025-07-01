@@ -1,91 +1,119 @@
-import pandas as pd
+"""
+Generador de Datos de Mercado
+Simula datos realistas cuando MT5 no está disponible
+"""
+
 import numpy as np
+import pandas as pd
 from datetime import datetime, timedelta
-import json
-import os
+import logging
 
-class SyntheticDataGenerator:
-    """Generador de datos sintéticos para pruebas"""
+logger = logging.getLogger('data_generator')
+
+class DataGenerator:
+    """Generador de datos de mercado simulados"""
     
-    def __init__(self):
-        self.symbols = ['EURUSD', 'GBPUSD', 'US500']
-        self.base_prices = {
-            'EURUSD': 1.0800,
-            'GBPUSD': 1.2500, 
-            'US500': 4500.0
-        }
-    
-    def generate_ohlcv_data(self, symbol: str, days: int = 30, interval_minutes: int = 1) -> pd.DataFrame:
-        """Generar datos OHLCV sintéticos"""
+    def __init__(self, symbol="US500", base_price=4500):
+        self.symbol = symbol
+        self.base_price = base_price
         
-        base_price = self.base_prices.get(symbol, 100.0)
-        volatility = 0.001  # 0.1% por minuto
-        
-        # Número total de barras
-        total_bars = days * 24 * 60 // interval_minutes
-        
-        # Generar timestamps
-        end_time = datetime.now()
-        start_time = end_time - timedelta(days=days)
-        timestamps = pd.date_range(start_time, end_time, periods=total_bars)
-        
-        # Generar precios usando random walk
-        prices = [base_price]
-        for i in range(1, total_bars):
-            change = np.random.normal(0, volatility)
-            new_price = prices[-1] * (1 + change)
-            prices.append(new_price)
-        
-        # Crear datos OHLCV
-        data = []
-        for i, timestamp in enumerate(timestamps):
-            # Para cada barra, generar OHLC basado en el precio base
-            base = prices[i]
-            high_factor = 1 + abs(np.random.normal(0, volatility/2))
-            low_factor = 1 - abs(np.random.normal(0, volatility/2))
+    def generate_realistic_data(self, n_points=1500, start_date=None):
+        """Generar datos de mercado realistas"""
+        try:
+            if start_date is None:
+                start_date = datetime.now() - timedelta(days=n_points//1440)  # Aprox días
             
-            open_price = base if i == 0 else data[-1]['close']
-            close_price = base
-            high_price = max(open_price, close_price) * high_factor
-            low_price = min(open_price, close_price) * low_factor
-            volume = np.random.randint(100, 1000)
+            logger.info(f"🔄 Generando {n_points} puntos de datos para {self.symbol}")
             
-            data.append({
-                'timestamp': timestamp,
-                'symbol': symbol,
-                'open': round(open_price, 5),
-                'high': round(high_price, 5),
-                'low': round(low_price, 5),
-                'close': round(close_price, 5),
-                'volume': volume
-            })
-        
-        return pd.DataFrame(data)
+            # Crear timestamps
+            dates = [start_date + timedelta(minutes=i) for i in range(n_points)]
+            
+            # Generar precios con tendencia y volatilidad realista
+            prices = self._generate_price_series(n_points)
+            
+            # Crear DataFrame similar a MT5
+            data = {
+                'time': dates,
+                'open': prices,
+                'high': prices * (1 + np.abs(np.random.normal(0, 0.001, n_points))),
+                'low': prices * (1 - np.abs(np.random.normal(0, 0.001, n_points))),
+                'close': prices,
+                'tick_volume': np.random.randint(100, 1000, n_points),
+                'spread': np.random.randint(1, 5, n_points),
+                'real_volume': np.random.randint(1000, 10000, n_points)
+            }
+            
+            df = pd.DataFrame(data)
+            df.set_index('time', inplace=True)
+            
+            # Ajustar high/low para que sean coherentes
+            df['high'] = np.maximum(df[['open', 'close']].max(axis=1), df['high'])
+            df['low'] = np.minimum(df[['open', 'close']].min(axis=1), df['low'])
+            
+            logger.info(f"✅ Datos generados: {len(df)} puntos desde {df.index[0]} hasta {df.index[-1]}")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error generando datos: {e}")
+            return None
     
-    def save_data(self, symbol: str, days: int = 30):
-        """Generar y guardar datos"""
-        df = self.generate_ohlcv_data(symbol, days)
+    def _generate_price_series(self, n_points):
+        """Generar serie de precios con tendencias realistas"""
+        # Parámetros para simulación realista
+        dt = 1/252/1440  # 1 minuto en años
+        mu = 0.10  # Retorno anual esperado
+        sigma = 0.20  # Volatilidad anual
         
-        # Crear directorio si no existe
-        os.makedirs('data/raw', exist_ok=True)
+        # Proceso de Wiener (movimiento browniano)
+        returns = np.random.normal(mu * dt, sigma * np.sqrt(dt), n_points)
         
-        # Guardar como CSV
-        filename = f'data/raw/{symbol}_{days}days.csv'
-        df.to_csv(filename, index=False)
-        print(f"✅ Datos guardados: {filename} ({len(df)} registros)")
+        # Agregar algunos eventos de mercado (gaps, trends)
+        for i in range(0, n_points, 200):
+            if np.random.random() < 0.3:  # 30% probabilidad de evento
+                returns[i:i+20] += np.random.normal(0, 0.01, 20)  # Volatilidad aumentada
         
-        return filename
-
-def test_data_generation():
-    """Probar generación de datos"""
-    generator = SyntheticDataGenerator()
+        # Agregar tendencias periódicas
+        trend = 0.0005 * np.sin(np.arange(n_points) * 2 * np.pi / 100)
+        returns += trend
+        
+        # Calcular precios
+        prices = [self.base_price]
+        for i in range(1, n_points):
+            new_price = prices[-1] * (1 + returns[i])
+            prices.append(max(new_price, self.base_price * 0.5))  # Evitar precios negativos
+        
+        return np.array(prices)
     
-    for symbol in ['EURUSD', 'GBPUSD', 'US500']:
-        filename = generator.save_data(symbol, days=7)
-        
-        # Verificar datos
-        df = pd.read_csv(filename)
-        print(f"📊 {symbol}: {len(df)} registros, precio promedio: {df['close'].mean():.4f}")
-
-if __name__ == "__main__":
-    test_data_generation()
+    def add_market_events(self, df, n_events=5):
+        """Agregar eventos de mercado aleatorios"""
+        try:
+            indices = np.random.choice(len(df), n_events, replace=False)
+            
+            for idx in indices:
+                # Tipo de evento aleatorio
+                event_type = np.random.choice(['gap_up', 'gap_down', 'high_vol'])
+                
+                if event_type == 'gap_up':
+                    multiplier = 1 + np.random.uniform(0.02, 0.05)
+                    df.iloc[idx:idx+10] *= multiplier
+                elif event_type == 'gap_down':
+                    multiplier = 1 - np.random.uniform(0.02, 0.05)
+                    df.iloc[idx:idx+10] *= multiplier
+                elif event_type == 'high_vol':
+                    volatility = np.random.normal(0, 0.02, 20)
+                    for i, vol in enumerate(volatility):
+                        if idx + i < len(df):
+                            df.iloc[idx + i] *= (1 + vol)
+            
+            logger.info(f"✅ {n_events} eventos de mercado agregados")
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error agregando eventos: {e}")
+            return df
+    
+    def get_current_price(self):
+        """Obtener precio actual simulado"""
+        # Simular precio actual con pequeña variación
+        variation = np.random.normal(0, 0.001)
+        return self.base_price * (1 + variation) 

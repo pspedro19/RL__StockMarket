@@ -40,7 +40,7 @@ data/models/*.pkl
 data/models/*.pth
 data/models/*.h5
 data/models/*.joblib
-data/models/*.zip
+# data/models/*.zip  # Permitir modelos ZIP para facilitar el uso
 data/results/*.png
 data/results/*.html
 data/results/*.pdf

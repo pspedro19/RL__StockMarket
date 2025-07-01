@@ -80,6 +80,7 @@ class RealTimeTradeManager:
     def __init__(self, csv_filename=None):
         self.trades = []
         self.open_trades = {}
+        self.completed_trades = {}  # ✅ NUEVO: Diccionario de trades completados
         self.trade_counter = 0
         
         # CSV filename con timestamp
@@ -198,34 +199,75 @@ class RealTimeTradeManager:
         else:  # SELL
             return_pct = ((entry_price - exit_price) / entry_price) * 100
             
-        return_absolute = return_pct * trade_data['size'] * entry_price / 100
+        return_absolute = (exit_price - entry_price) * trade_data['size'] if trade_data['trade_type'] == 'BUY' else (entry_price - exit_price) * trade_data['size']
         
-        # Actualizar datos
+        # Actualizar trade data
         trade_data.update({
             'status': 'CLOSED',
-            'exit_time': exit_time_str,
             'exit_price': round(exit_price, 4),
-            'duration_minutes': round(duration, 1),
-            'return_pct': round(return_pct, 2),
+            'exit_time': exit_time_str,
+            'duration_minutes': round(duration, 2),
+            'return_pct': round(return_pct, 4),
             'return_absolute': round(return_absolute, 2),
             'exit_reason': exit_reason
         })
         
-        # Mover a trades cerrados
-        self.trades.append(trade_data)
+        # Mover a completed trades
+        self.completed_trades[trade_id] = trade_data
         del self.open_trades[trade_id]
         
-        # Actualizar CSV
+        # Actualizar en CSV
         self.update_trade_in_csv(trade_data)
         
         print(f"🔴 TRADE CERRADO")
         print(f"   ID: {trade_id}")
-        print(f"   Precio Exit: ${exit_price:.4f}")
-        print(f"   Retorno: {return_pct:.2f}%")
         print(f"   Duración: {duration:.1f} min")
+        print(f"   P&L: ${return_absolute:.2f} ({return_pct:+.2f}%)")
         print(f"   Razón: {exit_reason}")
         
         return trade_data
+        
+    def get_trade_statistics(self):
+        """Obtener estadísticas completas de trading"""
+        try:
+            total_trades = len(self.completed_trades)
+            if total_trades == 0:
+                return {
+                    'total_trades': 0,
+                    'winning_trades': 0,
+                    'losing_trades': 0,
+                    'win_rate': 0.0,
+                    'total_pnl': 0.0,
+                    'avg_win': 0.0,
+                    'avg_loss': 0.0,
+                    'avg_duration': 0.0,
+                    'open_trades': len(self.open_trades)
+                }
+            
+            completed_list = list(self.completed_trades.values())
+            winning_trades = [t for t in completed_list if t.get('return_absolute', 0) > 0]
+            losing_trades = [t for t in completed_list if t.get('return_absolute', 0) < 0]
+            
+            total_pnl = sum(t.get('return_absolute', 0) for t in completed_list)
+            avg_win = sum(t.get('return_absolute', 0) for t in winning_trades) / len(winning_trades) if winning_trades else 0
+            avg_loss = sum(t.get('return_absolute', 0) for t in losing_trades) / len(losing_trades) if losing_trades else 0
+            avg_duration = sum(t.get('duration_minutes', 0) for t in completed_list) / total_trades
+            
+            return {
+                'total_trades': total_trades,
+                'winning_trades': len(winning_trades),
+                'losing_trades': len(losing_trades),
+                'win_rate': (len(winning_trades) / total_trades) * 100,
+                'total_pnl': total_pnl,
+                'avg_win': avg_win,
+                'avg_loss': avg_loss,
+                'avg_duration': avg_duration,
+                'open_trades': len(self.open_trades)
+            }
+            
+        except Exception as e:
+            print(f"❌ Error calculando estadísticas: {e}")
+            return {}
     
     def write_trade_to_csv(self, trade_data):
         """Escribir trade al CSV"""
@@ -347,18 +389,24 @@ class RealTimeTradingSystem:
         self.timeframe = mt5.TIMEFRAME_M1
         self.mt5_connected = False  # INICIALIZAR FLAG DE CONEXIÓN
         
-        # Configuración de trading robusta
+        # ✅ CONFIGURACIÓN DE TRADING MENOS AGRESIVA
         self.trading_enabled = True
-        self.max_position_size = 0.1  # 10% máximo
-        self.stop_loss_pct = 0.02     # 2% stop loss
-        self.take_profit_pct = 0.04   # 4% take profit
-        self.max_daily_trades = 10    # Límite diario
-        self.cooldown_period = 30     # 30 segundos entre trades
-        self.consecutive_losses = 0   # Contador de pérdidas consecutivas
+        self.max_position_size = 0.05     # ✅ REDUCIDO: 5% máximo (era 10%)
+        self.stop_loss_pct = 0.02         # 2% stop loss
+        self.take_profit_pct = 0.04       # 4% take profit
+        self.max_daily_trades = 5         # ✅ REDUCIDO: 5 trades por día (era 10)
+        self.cooldown_period = 300        # ✅ AUMENTADO: 5 minutos entre trades (era 30 segundos)
+        self.consecutive_losses = 0       # Contador de pérdidas consecutivas
+        
+        # ✅ CONTROL DE PANELES - NUEVO SISTEMA
+        self.panel_mode = 0  # 0=Auto, 1=Estadísticas, 2=Trades Activos, 3=Performance
+        self.panel_modes = ['AUTO', 'STATS', 'ACTIVE', 'PERF']
+        self.last_panel_switch = 0
+        self.auto_switch_interval = 30  # Cambio automático cada 30 segundos
         
         # Contadores y métricas
         self.trades_today = 0
-        self.last_trade_time = 0
+        self.last_trade_time = 0  # ✅ INICIALIZAR EN 0 PARA PERMITIR PRIMER TRADE
         self.consecutive_losses = 0
         self.max_consecutive_losses = 3
         
@@ -1751,13 +1799,14 @@ class RealTimeTradingSystem:
                 signal_strength = self._get_robust_signal(latest_data, indicators)
                 self.last_signal_strength = signal_strength
                 
-                # Trading - USAR SISTEMA COMPLETO
+                # ✅ TRADING - USAR SISTEMA ROBUSTO CON COOLDOWN
                 data_point = latest_data.iloc[-1].to_dict()
                 indicators = self.calculate_indicators(data_point)
                 signals = self.analyze_signals(data_point, indicators)
                 
-                # Llamar al sistema completo de trading
-                self.execute_trading_logic(data_point, indicators, signals)
+                # ✅ USAR MÉTODO ROBUSTO QUE RESPETA COOLDOWN Y VALIDACIONES
+                signal_strength = self._get_robust_signal(latest_data, indicators)
+                self._execute_trading_logic_robust(signal_strength, data_point)
                 
                 # Actualizar estado y dashboard
                 self._print_status_update(signal_strength)
@@ -1865,10 +1914,21 @@ class RealTimeTradingSystem:
             return 0.0
 
     def _execute_trading_logic_robust(self, signal_strength, data):
-        """Ejecutar lógica de trading con todas las validaciones"""
+        """Ejecutar lógica de trading con todas las validaciones MEJORADAS"""
         try:
-            # Verificar condiciones de entrada
-            if abs(signal_strength) < 0.3:
+            current_time = time.time()
+            
+            # ✅ VERIFICAR COOLDOWN PRIMERO - MUY IMPORTANTE
+            if current_time - self.last_trade_time < self.cooldown_period:
+                # Mostrar mensaje solo cada 10 segundos para no spam
+                if not hasattr(self, '_last_cooldown_msg') or current_time - self._last_cooldown_msg > 10:
+                    remaining = int(self.cooldown_period - (current_time - self.last_trade_time))
+                    print(f"🚫 COOLDOWN ACTIVO: {remaining}s restantes ({remaining//60}m {remaining%60}s)")
+                    self._last_cooldown_msg = current_time
+                return
+            
+            # ✅ VERIFICAR SEÑAL MÁS ESTRICTA 
+            if abs(signal_strength) < 0.5:  # Cambiado de 0.3 a 0.5
                 return  # Señal demasiado débil
             
             # Verificar si ya tenemos posición
@@ -1877,8 +1937,19 @@ class RealTimeTradingSystem:
                 self._check_exit_conditions_robust(signal_strength)
                 return
             
+            # ✅ VALIDAR TODAS LAS CONDICIONES ANTES DE EJECUTAR
+            valid, reason = self._validate_trade_conditions(signal_strength)
+            if not valid:
+                # Solo mostrar mensaje cada 30 segundos para trades rechazados
+                if not hasattr(self, '_last_reject_msg') or current_time - self._last_reject_msg > 30:
+                    print(f"🚫 Trade rechazado: {reason}")
+                    self._last_reject_msg = current_time
+                return
+            
             # Ejecutar nuevo trade si las condiciones son válidas
-            self._execute_trade_robust(signal_strength, datetime.now())
+            result = self._execute_trade_robust(signal_strength, datetime.now())
+            if result:
+                print(f"✅ Trade ejecutado exitosamente tras {(current_time - self.last_trade_time)/60:.1f} minutos de cooldown")
             
         except Exception as e:
             print(f"⚠️ Error en lógica de trading: {e}")
@@ -1904,21 +1975,23 @@ class RealTimeTradingSystem:
             if self.current_position is None:
                 return
             
-            # Obtener último trade
-            if len(self.all_trades) > 0:
-                last_trade = self.all_trades[-1]
+            # ✅ OBTENER EL ÚLTIMO TRADE ABIERTO DEL TRADE MANAGER
+            if self.trade_manager.open_trades:
+                # Obtener el último trade abierto (más reciente)
+                last_trade_id = list(self.trade_manager.open_trades.keys())[-1]
+                last_trade = self.trade_manager.open_trades[last_trade_id]
                 
-                # Cerrar trade
+                # Cerrar trade usando el trade manager
                 result = self.trade_manager.close_trade(
-                    trade_id=last_trade['trade_id'],
+                    trade_id=last_trade_id,
                     exit_price=self.current_price,
                     exit_time=datetime.now(),
                     exit_reason=reason
                 )
                 
                 if result:
-                    # Calcular P&L
-                    pnl = self._calculate_pnl(last_trade, self.current_price)
+                    # ✅ CALCULAR P&L USANDO LOS DATOS DEL RESULTADO
+                    pnl = result.get('return_absolute', 0)
                     
                     # Actualizar capital
                     self.current_capital += pnl
@@ -1929,10 +2002,9 @@ class RealTimeTradingSystem:
                     else:
                         self.consecutive_losses = 0
                     
-                    # Actualizar trade en la lista
-                    last_trade.update(result)
-                    
-                    print(f"🔄 Posición cerrada: {self.current_position} P&L: ${pnl:+.2f}")
+                    print(f"🔄 Posición cerrada: {self.current_position}")
+                    print(f"   💰 P&L: ${pnl:+.2f}")
+                    print(f"   📊 Capital actual: ${self.current_capital:,.2f}")
                     
                     # Reset posición
                     self.current_position = None
@@ -3337,9 +3409,9 @@ class RealTimeTradingSystem:
         ax.grid(True, alpha=0.3)
     
     def _draw_info_panels(self):
-        """Dibujar paneles de información MEJORADOS"""
+        """Dibujar paneles de información MEJORADOS con control manual"""
         try:
-            # 💰 PANEL FINANCIERO (ax_info1) - MÁS CLARO Y GRANDE
+            # ✅ PANEL IZQUIERDO - SIEMPRE ESTADO GENERAL
             pnl_amount = self.current_capital - self.initial_capital
             pnl_percent = ((self.current_capital/self.initial_capital-1)*100)
             pnl_color = '#00ff00' if pnl_amount >= 0 else '#ff0000'
@@ -3374,34 +3446,76 @@ ${pnl_amount:+,.2f} ({pnl_percent:+.2f}%)
                    fontsize=10, color='white', va='top', ha='left', fontweight='bold',
                    bbox=dict(boxstyle="round,pad=0.5", facecolor='#1a1a2a', alpha=0.9, edgecolor='#333'))
             
-            # 📊 PANEL DE TRADING (ax_info2) - INFORMACIÓN DE TRADES
-            total_trades = len(self.all_trades) if hasattr(self, 'all_trades') else 0
-            open_trades = len(self.trade_manager.open_trades) if hasattr(self, 'trade_manager') else 0
-            winning_trades = sum(1 for t in self.all_trades if t.get('pnl', 0) > 0) if hasattr(self, 'all_trades') else 0
+            # ✅ PANEL DERECHO - CONTROLADO POR MODO
+            current_time = time.time()
             
-            # Calcular win rate
-            win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+            # Cambio automático solo en modo AUTO
+            if self.panel_mode == 0 and current_time - self.last_panel_switch > self.auto_switch_interval:
+                self.panel_mode = (self.panel_mode + 1) % len(self.panel_modes)
+                if self.panel_mode == 0:  # Si vuelve a AUTO, empieza en 1
+                    self.panel_mode = 1
+                self.last_panel_switch = current_time
             
-            # Calcular uptime
-            try:
-                session_start = getattr(self, 'session_start', time.time())
-                uptime_minutes = (time.time() - session_start) / 60
-            except:
-                uptime_minutes = 0
+            # Obtener estadísticas actualizadas
+            stats = self.trade_manager.get_trade_statistics()
+            
+            if self.panel_mode == 1:  # ESTADÍSTICAS COMPLETAS
+                info_text = f"""📊 ESTADÍSTICAS COMPLETAS
+Modo: {self.panel_modes[self.panel_mode]}
+
+✅ TRADES COMPLETADOS: {stats.get('total_trades', 0)}
+🟢 GANADORES: {stats.get('winning_trades', 0)}
+🔴 PERDEDORES: {stats.get('losing_trades', 0)}
+📈 WIN RATE: {stats.get('win_rate', 0):.1f}%
+
+💰 P&L TOTAL: ${stats.get('total_pnl', 0):+.2f}
+📊 GANANCIA PROMEDIO: ${stats.get('avg_win', 0):.2f}
+📉 PÉRDIDA PROMEDIO: ${stats.get('avg_loss', 0):.2f}
+⏱️ DURACIÓN PROMEDIO: {stats.get('avg_duration', 0):.1f} min
+
+🔓 TRADES ABIERTOS: {stats.get('open_trades', 0)}
+🚫 COOLDOWN: {max(0, int(self.cooldown_period - (current_time - self.last_trade_time)))}s
+
+🎮 BOTÓN ⏩ PARA CAMBIAR VISTA
+                """
                 
-            # Última señal y fuerza
-            last_signal = getattr(self, 'last_signal_strength', 0)
-            signal_direction = "COMPRA" if last_signal > 0.3 else "VENTA" if last_signal < -0.3 else "NEUTRAL"
-            signal_emoji = "🟢" if last_signal > 0.3 else "🔴" if last_signal < -0.3 else "🟡"
-            
-            info_text = f"""📊 ESTADÍSTICAS TRADING
+            elif self.panel_mode == 2:  # TRADES ACTIVOS
+                info_text = f"""🔓 TRADES ACTIVOS
+Modo: {self.panel_modes[self.panel_mode]}
 
-✅ TRADES TOTAL: {total_trades}
-🟢 GANADORES: {winning_trades}
-🔴 PERDEDORES: {total_trades - winning_trades}
-📈 WIN RATE: {win_rate:.1f}%
+🔢 TOTAL ABIERTOS: {len(self.trade_manager.open_trades)}
+📈 LÍMITE DIARIO: {self.trades_today}/{self.max_daily_trades}
 
-🔓 TRADES ABIERTOS: {open_trades}
+"""
+                # Mostrar trades abiertos
+                if self.trade_manager.open_trades:
+                    for trade_id, trade in list(self.trade_manager.open_trades.items())[:3]:  # Solo primeros 3
+                        trade_type = trade['trade_type']
+                        entry_price = trade['entry_price']
+                        current_pnl = ((self.current_price - entry_price) / entry_price * 100) if trade_type == 'BUY' else ((entry_price - self.current_price) / entry_price * 100)
+                        info_text += f"""🔸 {trade_id[-8:]}
+   {trade_type} @ ${entry_price:.2f}
+   P&L: {current_pnl:+.2f}%
+
+"""
+                else:
+                    info_text += "Sin trades abiertos\n\n"
+                    
+                info_text += "🎮 BOTÓN ⏩ PARA CAMBIAR VISTA"
+                
+            elif self.panel_mode == 3:  # PERFORMANCE
+                last_signal = getattr(self, 'last_signal_strength', 0)
+                signal_direction = "COMPRA" if last_signal > 0.3 else "VENTA" if last_signal < -0.3 else "NEUTRAL"
+                signal_emoji = "🟢" if last_signal > 0.3 else "🔴" if last_signal < -0.3 else "🟡"
+                
+                try:
+                    session_start = getattr(self, 'session_start', time.time())
+                    uptime_minutes = (time.time() - session_start) / 60
+                except:
+                    uptime_minutes = 0
+                
+                info_text = f"""⚡ PERFORMANCE & SEÑALES
+Modo: {self.panel_modes[self.panel_mode]}
 
 {signal_emoji} ÚLTIMA SEÑAL
 {signal_direction} ({last_signal:+.3f})
@@ -3410,10 +3524,33 @@ ${pnl_amount:+,.2f} ({pnl_percent:+.2f}%)
 {'🟢 CONECTADO' if self._check_mt5_connection() else '🔴 DESCONECTADO'}
 
 ⏱️ UPTIME: {uptime_minutes:.1f} min
+🕐 COOLDOWN: {self.cooldown_period}s
+🔄 TRADES HOY: {self.trades_today}
 
-🎮 USAR BOTONES ABAJO
-PARA CONTROLAR SISTEMA
-            """
+📊 HEALTH STATUS:
+{'🟢 SISTEMA SALUDABLE' if self.system_healthy else '🔴 PROBLEMAS DETECTADOS'}
+{'🟢 DATOS ESTABLES' if self.data_flow_stable else '🔴 DATOS INESTABLES'}
+
+⚠️ PÉRDIDAS CONSECUTIVAS: {self.consecutive_losses}
+
+🎮 BOTÓN ⏩ PARA CAMBIAR VISTA
+                """
+            else:  # AUTO (modo 0) - Mostrar resumen general
+                info_text = f"""📊 RESUMEN GENERAL
+Modo: AUTO (Cambia cada 30s)
+
+✅ TRADES: {stats.get('total_trades', 0)} | WIN: {stats.get('win_rate', 0):.1f}%
+🔓 ABIERTOS: {stats.get('open_trades', 0)}
+💰 P&L: ${stats.get('total_pnl', 0):+.2f}
+
+{signal_emoji} SEÑAL: {signal_direction}
+🔗 MT5: {'🟢 OK' if self._check_mt5_connection() else '🔴 ERROR'}
+
+⏱️ UPTIME: {uptime_minutes:.1f} min
+🔄 COOLDOWN: {max(0, int(self.cooldown_period - (current_time - self.last_trade_time)))}s
+
+🎮 BOTÓN ⏩ PARA CONTROL MANUAL
+                """
             
             ax = self.axes['info']
             ax.clear()
@@ -3426,11 +3563,11 @@ PARA CONTROLAR SISTEMA
             print(f"⚠️ Error dibujando paneles de información: {e}")
     
     def create_controls(self):
-        """Crear controles como en ml_enhanced_system.py"""
+        """Crear controles ROBUSTOS que NO cierren el dashboard"""
         try:
             from matplotlib.widgets import Button, Slider
             
-            # Botones principales como en ml_enhanced_system
+            # ✅ BOTONES PRINCIPALES CON MANEJO DE ERRORES
             ax_play = plt.axes([0.05, 0.02, 0.05, 0.04])
             ax_pause = plt.axes([0.11, 0.02, 0.05, 0.04])
             ax_stop = plt.axes([0.17, 0.02, 0.05, 0.04])
@@ -3438,39 +3575,235 @@ PARA CONTROLAR SISTEMA
             ax_forward = plt.axes([0.29, 0.02, 0.05, 0.04])
             ax_realtime = plt.axes([0.35, 0.02, 0.08, 0.04])
             
-            self.btn_play = Button(ax_play, '▶️')
-            self.btn_pause = Button(ax_pause, '⏸️')
-            self.btn_stop = Button(ax_stop, '⏹️')
-            self.btn_back = Button(ax_back, '⏪')
-            self.btn_forward = Button(ax_forward, '⏩')
-            self.btn_realtime = Button(ax_realtime, '🤖 AUTO')
+            # Estilo de botones
+            button_style = {
+                'color': '#444444',
+                'hovercolor': '#666666'
+            }
             
-            # Sliders
+            self.btn_play = Button(ax_play, '▶️', **button_style)
+            self.btn_pause = Button(ax_pause, '⏸️', **button_style)
+            self.btn_stop = Button(ax_stop, '⏹️', **button_style)
+            self.btn_back = Button(ax_back, '🔄', **button_style)  # ✅ REFRESH/RESTART
+            self.btn_forward = Button(ax_forward, '⏩', **button_style)  # ✅ PANEL SWITCH
+            self.btn_realtime = Button(ax_realtime, '🤖 AUTO', **button_style)
+            
+            # ✅ SLIDERS CON VALORES SEGUROS
             ax_speed = plt.axes([0.48, 0.02, 0.12, 0.04])
             ax_ml_weight = plt.axes([0.65, 0.02, 0.12, 0.04])
             
             self.slider_speed = Slider(ax_speed, 'Velocidad', 0.25, 4.0, valinit=1.0)
             self.slider_ml_weight = Slider(ax_ml_weight, 'Peso IA', 0.0, 1.0, valinit=0.6)
             
-            # Eventos
-            self.btn_play.on_clicked(lambda x: self.start_real_time())
-            self.btn_pause.on_clicked(lambda x: self.stop_real_time())
-            self.btn_stop.on_clicked(lambda x: self.stop_real_time())
-            self.btn_realtime.on_clicked(lambda x: self.toggle_real_time())
+            # ✅ EVENTOS CON MANEJO DE ERRORES ROBUSTO
+            self.btn_play.on_clicked(self._safe_start_real_time)
+            self.btn_pause.on_clicked(self._safe_pause_real_time)
+            self.btn_stop.on_clicked(self._safe_stop_real_time)
+            self.btn_back.on_clicked(self._safe_refresh_system)  # ✅ NUEVO: Refresh
+            self.btn_forward.on_clicked(self._safe_switch_panel_mode)  # ✅ Panel switch
+            self.btn_realtime.on_clicked(self._safe_toggle_real_time)
             
-            print("✅ Controles creados como en ml_enhanced_system")
+            # Estilo de texto para botones
+            for btn in [self.btn_play, self.btn_pause, self.btn_stop, 
+                       self.btn_back, self.btn_forward, self.btn_realtime]:
+                btn.label.set_color('white')
+                btn.label.set_fontsize(10)
+                btn.label.set_fontweight('bold')
+            
+            print("✅ Controles ROBUSTOS creados exitosamente")
+            print("   🎮 Botones disponibles:")
+            print("      ▶️  = Iniciar trading en tiempo real")
+            print("      ⏸️  = Pausar trading")
+            print("      ⏹️  = Detener trading completamente")
+            print("      🔄  = Refresh/Reiniciar datos")
+            print("      ⏩  = Cambiar vista de panel derecho")
+            print("      🤖  = Toggle modo automático")
             
         except Exception as e:
             print(f"⚠️ Error creando controles: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # ✅ FUNCIONES SEGURAS PARA BOTONES - CON MANEJO DE ERRORES
     
+    def _safe_start_real_time(self, event):
+        """Iniciar trading de forma segura"""
+        try:
+            print("🎯 Botón PLAY presionado - Iniciando sistema...")
+            if not self.is_real_time:
+                self.start_real_time()
+                print("✅ Sistema iniciado correctamente")
+            else:
+                print("ℹ️ El sistema ya está en funcionamiento")
+        except Exception as e:
+            print(f"❌ Error iniciando sistema: {e}")
+            # NO cerrar dashboard, solo reportar error
+    
+    def _safe_pause_real_time(self, event):
+        """Pausar trading de forma segura"""
+        try:
+            print("🎯 Botón PAUSE presionado - Pausando sistema...")
+            if self.is_real_time:
+                self.stop_real_time()
+                print("✅ Sistema pausado correctamente")
+            else:
+                print("ℹ️ El sistema ya está pausado")
+        except Exception as e:
+            print(f"❌ Error pausando sistema: {e}")
+            # NO cerrar dashboard, solo reportar error
+    
+    def _safe_stop_real_time(self, event):
+        """Detener trading de forma segura"""
+        try:
+            print("🎯 Botón STOP presionado - Deteniendo sistema...")
+            if self.is_real_time:
+                self.stop_real_time()
+            
+            # Cerrar todas las posiciones abiertas de forma segura
+            try:
+                current_price = getattr(self, 'current_price', 0)
+                if current_price > 0:
+                    self._close_current_position("MANUAL_STOP")
+            except:
+                pass  # Ignorar errores al cerrar posiciones
+                
+            print("✅ Sistema detenido completamente")
+        except Exception as e:
+            print(f"❌ Error deteniendo sistema: {e}")
+            # NO cerrar dashboard, solo reportar error
+    
+    def _safe_refresh_system(self, event):
+        """Refresh/Reiniciar datos de forma segura"""
+        try:
+            print("🎯 Botón REFRESH presionado - Actualizando datos...")
+            
+            # Refrescar datos sin parar el sistema
+            if hasattr(self, 'base_system') and self.base_system:
+                try:
+                    self.manually_refresh_data()
+                    print("✅ Datos actualizados")
+                except:
+                    print("⚠️ No se pudieron actualizar datos automáticamente")
+            
+            # Limpiar datos antiguos
+            try:
+                self._clean_old_data()
+                print("✅ Datos antiguos limpiados")
+            except:
+                print("⚠️ No se pudieron limpiar datos antiguos")
+            
+            # Forzar redibujado del dashboard
+            try:
+                if hasattr(self, 'fig') and self.fig:
+                    self.fig.canvas.draw()
+                    self.fig.canvas.flush_events()
+                    print("✅ Dashboard actualizado")
+            except:
+                print("⚠️ No se pudo actualizar dashboard")
+                
+            print("🔄 Refresh completado")
+            
+        except Exception as e:
+            print(f"❌ Error en refresh: {e}")
+            # NO cerrar dashboard, solo reportar error
+    
+    def _safe_switch_panel_mode(self, event):
+        """Cambiar modo de panel de forma segura"""
+        try:
+            print("🎯 Botón PANEL SWITCH presionado...")
+            self._switch_panel_mode()
+        except Exception as e:
+            print(f"❌ Error cambiando panel: {e}")
+            # NO cerrar dashboard, solo reportar error
+    
+    def _safe_toggle_real_time(self, event):
+        """Toggle tiempo real de forma segura"""
+        try:
+            print("🎯 Botón AUTO presionado - Toggle modo automático...")
+            self.toggle_real_time()
+        except Exception as e:
+            print(f"❌ Error en toggle: {e}")
+            # NO cerrar dashboard, solo reportar error
+
     def toggle_real_time(self):
-        """Toggle tiempo real como en ml_enhanced_system"""
-        if self.is_real_time:
-            self.stop_real_time()
-            print("⏸️ Sistema pausado")
-        else:
-            self.start_real_time()
-            print("▶️ Sistema iniciado")
+        """Toggle tiempo real MEJORADO con manejo de errores"""
+        try:
+            if self.is_real_time:
+                self.stop_real_time()
+                print("⏸️ Sistema pausado desde toggle")
+                
+                # Actualizar botón si existe
+                try:
+                    if hasattr(self, 'btn_realtime'):
+                        self.btn_realtime.label.set_text('▶️ START')
+                except:
+                    pass
+            else:
+                self.start_real_time()
+                print("▶️ Sistema iniciado desde toggle")
+                
+                # Actualizar botón si existe
+                try:
+                    if hasattr(self, 'btn_realtime'):
+                        self.btn_realtime.label.set_text('⏸️ AUTO')
+                except:
+                    pass
+                    
+            # Redibujar figura si es posible
+            try:
+                if hasattr(self, 'fig') and self.fig:
+                    self.fig.canvas.draw()
+            except:
+                pass
+                
+        except Exception as e:
+            print(f"❌ Error en toggle_real_time: {e}")
+            # NO lanzar excepción para evitar cerrar dashboard
+
+    def _switch_panel_mode(self):
+        """✅ NUEVO: Cambiar modo de panel derecho manualmente"""
+        try:
+            self.panel_mode = (self.panel_mode + 1) % len(self.panel_modes)
+            self.last_panel_switch = time.time()
+            
+            mode_name = self.panel_modes[self.panel_mode]
+            mode_descriptions = {
+                'AUTO': 'Automático (cambia cada 30s)',
+                'STATS': 'Estadísticas Completas',
+                'ACTIVE': 'Trades Activos',
+                'PERF': 'Performance & Señales'
+            }
+            
+            print(f"🔄 Panel derecho cambiado a: {mode_name}")
+            print(f"   📝 {mode_descriptions.get(mode_name, mode_name)}")
+            
+            # ✅ ACTUALIZACIÓN SEGURA DEL PANEL SIN ERRORES DE ANIMACIÓN
+            try:
+                if hasattr(self, 'axes') and 'info' in self.axes:
+                    # Pausar animaciones temporalmente para evitar conflictos
+                    animation_paused = False
+                    if hasattr(self, 'animation') and self.animation:
+                        self.animation.pause()
+                        animation_paused = True
+                    
+                    self._draw_info_panels()
+                    
+                    if hasattr(self, 'fig') and self.fig:
+                        # Usar draw() en lugar de draw_idle() para forzar actualización inmediata
+                        self.fig.canvas.draw()
+                        self.fig.canvas.flush_events()
+                    
+                    # Reanudar animaciones si fueron pausadas
+                    if animation_paused and hasattr(self, 'animation') and self.animation:
+                        self.animation.resume()
+                        
+            except Exception as draw_error:
+                print(f"⚠️ Error dibujando panel: {draw_error}")
+                    
+        except Exception as e:
+            print(f"⚠️ Error cambiando modo de panel: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _draw_rsi_panel_ml_style(self, data=None):
         """Panel RSI con ventana de 1 hora"""
@@ -3829,111 +4162,13 @@ PARA CONTROLAR SISTEMA
 
 
 
-    def _create_control_buttons(self):
-        """Crear botones de control MEJORADOS"""
-        try:
-            from matplotlib.widgets import Button
-            
-            # Posiciones para botones - MÁS GRANDES Y VISIBLES
-            button_positions = [
-                [0.02, 0.02, 0.15, 0.04],  # Pausar/Reanudar
-                [0.18, 0.02, 0.12, 0.04],  # Cerrar Posiciones
-                [0.31, 0.02, 0.12, 0.04],  # Reset Capital
-                [0.44, 0.02, 0.12, 0.04],  # Reconectar MT5
-                [0.57, 0.02, 0.12, 0.04],  # Guardar CSV
-                [0.70, 0.02, 0.12, 0.04],  # Limpiar Gráfico
-            ]
-            
-            button_labels = [
-                '⏸️ PAUSAR' if self.is_real_time else '▶️ INICIAR',
-                '❌ CERRAR', 
-                '💰 RESET',
-                '🔗 RECONECTAR',
-                '💾 GUARDAR',
-                '🧹 LIMPIAR'
-            ]
-            
-            button_functions = [
-                self._toggle_pause,
-                lambda x: self._close_all_positions_of_type('ALL', self.current_price, datetime.now(), "MANUAL"),
-                self._reset_capital,
-                self._reconnect_mt5,
-                self._save_state,
-                lambda x: self._clean_old_data()
-            ]
-            
-            self.buttons = []
-            for pos, label, func in zip(button_positions, button_labels, button_functions):
-                ax_button = plt.axes(pos)
-                ax_button.set_facecolor('#2a2a2a')
-                button = Button(ax_button, label, color='#444444', hovercolor='#666666')
-                button.label.set_color('white')
-                button.label.set_fontsize(10)
-                button.on_clicked(func)
-                self.buttons.append(button)
-            
-            print("✅ Botones de control mejorados creados")
-            
-        except Exception as e:
-            print(f"⚠️ Error creando botones: {e}")
+    # ✅ MÉTODO _create_control_buttons REMOVIDO
+    # Este método no se usaba y causaba conflictos con create_controls()
+    # Toda la funcionalidad de botones ahora está en create_controls() con manejo de errores robusto
     
-    def _toggle_pause(self, event):
-        """Toggle pausa del sistema MEJORADO"""
-        try:
-            if self.is_real_time:
-                self.stop_real_time()
-                print("⏸️ Sistema pausado por usuario")
-                # Actualizar texto del botón
-                if hasattr(self, 'buttons') and len(self.buttons) > 0:
-                    self.buttons[0].label.set_text('▶️ INICIAR')
-            else:
-                self.start_real_time()
-                print("▶️ Sistema reanudado por usuario")
-                # Actualizar texto del botón
-                if hasattr(self, 'buttons') and len(self.buttons) > 0:
-                    self.buttons[0].label.set_text('⏸️ PAUSAR')
-                    
-            # Redibujar la figura
-            if hasattr(self, 'fig'):
-                self.fig.canvas.draw()
-                
-        except Exception as e:
-            print(f"⚠️ Error en toggle pause: {e}")
-    
-    def _reconnect_mt5(self, event):
-        """Reconectar MT5 manualmente"""
-        try:
-            print("🔗 Reconectando MT5...")
-            if self.connect_mt5():
-                print("✅ MT5 reconectado exitosamente")
-            else:
-                print("❌ Error reconectando MT5")
-        except Exception as e:
-            print(f"⚠️ Error reconectando MT5: {e}")
-    
-    def _save_state(self, event):
-        """Guardar estado del sistema"""
-        try:
-            state = {
-                'capital': self.current_capital,
-                'position': self.current_position,
-                'trades': len(self.trades) if hasattr(self, 'trades') else 0
-            }
-            print(f"💾 Estado guardado: {state}")
-        except Exception as e:
-            print(f"⚠️ Error guardando estado: {e}")
-    
-    def _load_state(self, event):
-        """Cargar estado del sistema"""
-        print("📁 Función de carga en desarrollo")
-    
-    def _reset_capital(self, event):
-        """Resetear capital"""
-        self.current_capital = self.initial_capital
-        self.current_position = 'neutral'
-        if hasattr(self, 'trades'):
-            self.trades.clear()
-        print("🔄 Capital reseteado")
+    # ✅ MÉTODOS DE BOTONES ANTIGUOS REMOVIDOS
+    # Estos métodos eran parte del sistema de botones problemático
+    # Todas las funciones de botones ahora están en métodos _safe_*
 
     def _check_mt5_connection(self):
         """Verificar estado de la conexión MT5"""
@@ -4130,8 +4365,8 @@ PARA CONTROLAR SISTEMA
             if not self.trading_enabled:
                 return False, "Trading deshabilitado"
             
-            # Verificar señal mínima
-            if abs(signal_strength) < 0.3:
+            # ✅ VERIFICAR SEÑAL MÁS ESTRICTA PARA REDUCIR TRADES
+            if abs(signal_strength) < 0.5:  # ✅ AUMENTADO: de 0.3 a 0.5 (señales más fuertes)
                 return False, "Señal demasiado débil"
             
             # Verificar límites
@@ -4141,6 +4376,10 @@ PARA CONTROLAR SISTEMA
             # Verificar precio válido
             if self.current_price <= 0:
                 return False, "Precio inválido"
+            
+            # ✅ VERIFICAR QUE NO HAY POSICIÓN ABIERTA PARA EVITAR MÚLTIPLES TRADES
+            if self.current_position is not None:
+                return False, f"Ya hay posición abierta: {self.current_position}"
             
             return True, "Condiciones válidas"
             
@@ -4156,10 +4395,10 @@ PARA CONTROLAR SISTEMA
                 # print(f"🚫 Trade no ejecutado: {reason}")
                 return False
             
-            # Determinar tipo de operación
-            if signal_strength > 0.3:
+            # ✅ DETERMINAR TIPO DE OPERACIÓN CON UMBRAL MÁS ALTO
+            if signal_strength > 0.5:  # ✅ AUMENTADO: de 0.3 a 0.5
                 trade_type = "BUY"
-            elif signal_strength < -0.3:
+            elif signal_strength < -0.5:  # ✅ AUMENTADO: de -0.3 a -0.5
                 trade_type = "SELL"
             else:
                 return False
@@ -4237,7 +4476,10 @@ PARA CONTROLAR SISTEMA
             )
             
             if trade_id:
+                # ✅ ESTABLECER POSICIÓN ACTUAL CUANDO SE ABRE EL TRADE
+                self.current_position = trade_type
                 print(f"✅ Trade simulado registrado: {trade_type} ${self.current_price:.2f}")
+                print(f"   🎯 Posición actual: {self.current_position}")
                 return True
             else:
                 print(f"❌ Error registrando trade simulado")
